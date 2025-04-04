@@ -2,7 +2,8 @@
 
 import { gameState } from './gameState.js';
 import * as Config from './config.js';
-import { showMessage, showAllocationSection, showGameOverUI } from './ui.js';
+// Import necessary UI functions
+import { showMessage, showAllocationSection, showGameOverUI, clearMessage } from './ui.js';
 import { updateCanopyVisuals, setCanopyVisibility } from './tree.js';
 import { sunLight } from './sceneSetup.js'; // Need to control light
 
@@ -13,37 +14,43 @@ export function updateSimulation(deltaTime) {
     // --- Day/Night Cycle ---
     gameState.timeInCycle += deltaTime;
     let cycleDuration = gameState.timeOfDay === 'day' ? Config.DAY_DURATION_SECONDS : Config.NIGHT_DURATION_SECONDS;
-    let nextPhase = false;
+    let nextPhase = false; // Flag to know if phase just changed
 
     if (gameState.timeInCycle >= cycleDuration) {
         gameState.timeInCycle = 0; // Reset timer for the new phase
-        nextPhase = true;
+        nextPhase = true; // Mark that phase changed
+
         if (gameState.timeOfDay === 'day') {
-            // Transition to Night
+            // --- Transition to Night ---
             gameState.timeOfDay = 'night';
-            if (sunLight) { // Check if sunLight exists
-                sunLight.intensity = 0.2; // Dim sunlight for night
-                sunLight.position.set(-30, 50, -20); // Move sun
+            // Update lighting
+            if (sunLight) {
+                sunLight.intensity = 0.2;
+                sunLight.position.set(-30, 50, -20);
             }
-            showAllocationSection(); // Trigger allocation UI
+            // Trigger the allocation UI to show
+            showAllocationSection();
         } else {
-            // Transition to Day
+            // --- Transition to Day ---
             gameState.timeOfDay = 'day';
             gameState.day++;
-             if (sunLight) { // Check if sunLight exists
-                sunLight.intensity = 1.5; // Restore sun intensity
-                sunLight.position.set(30, 50, 20); // Reset sun position
-             }
-            // Maybe add random drought factor changes per day?
-            // gameState.droughtFactor = 1.0 + Math.random() * 0.5;
+            // Update lighting
+            if (sunLight) {
+                sunLight.intensity = 1.5;
+                sunLight.position.set(30, 50, 20);
+            }
+            // Show start-of-day message
              showMessage(`Day ${gameState.day} starting.`);
+            // Optional: Change drought factor
+            // gameState.droughtFactor = 1.0 + Math.random() * 0.5;
+            // showMessage(`Day ${gameState.day} starting. Drought: ${gameState.droughtFactor.toFixed(1)}`);
         }
     }
 
     // --- Run physiological simulation only during the day ---
     if (gameState.timeOfDay === 'day') {
         const stomata = gameState.stomatalConductance;
-        // Ensure effectiveLA and other params are valid numbers
+        // Ensure values are valid numbers and non-negative
         const effLA = Math.max(0, gameState.effectiveLA);
         const currentLA = Math.max(0, gameState.currentLA);
         const trunkVolume = Math.max(0, gameState.trunkWidth * gameState.trunkDepth * gameState.trunkHeight);
@@ -61,7 +68,7 @@ export function updateSimulation(deltaTime) {
         const hydraulicChange = (Config.HYDRAULIC_RECOVERY_RATE * (1 - stomata)) - waterLoss;
         gameState.hydraulicSafety += hydraulicChange * deltaTime;
 
-        // Clamp values
+        // Clamp values to min/max
         gameState.carbonStorage = Math.max(0, Math.min(Config.MAX_CARBON, gameState.carbonStorage));
         gameState.hydraulicSafety = Math.max(0, Math.min(Config.MAX_HYDRAULIC, gameState.hydraulicSafety));
 
@@ -72,13 +79,18 @@ export function updateSimulation(deltaTime) {
             // Update effective leaf area based on new damage
             gameState.effectiveLA = gameState.currentLA * (1 - gameState.damagedLAPercentage);
             updateCanopyVisuals(gameState); // Update color tint
+            // Show persistent warning message while stressed
              showMessage(`Hydraulic stress! Canopy damage! Safety: ${gameState.hydraulicSafety.toFixed(0)}`, 'warning');
         } else {
-             // Optional: Implement slow canopy recovery if hydraulics are good?
-             // For now, just ensure visuals are correct if damage returns to 0
-             if (gameState.damagedLAPercentage === 0) {
+             // Clear warning message ONLY if it was previously showing hydraulic stress
+            if (uiElements.messageLogUI && uiElements.messageLogUI.textContent.includes('Hydraulic stress')) {
+                 clearMessage();
+            }
+            // Optional: Implement slow canopy recovery if hydraulics are good?
+            // For now, just ensure visuals are correct if damage returns to 0
+            if (gameState.damagedLAPercentage === 0) {
                   updateCanopyVisuals(gameState); // Reset color if needed
-             }
+            }
         }
 
 
@@ -90,11 +102,15 @@ export function updateSimulation(deltaTime) {
         }
     }
 
-    // Update UI timer display happens in ui.js or main loop based on gameState.timeInCycle
+    // If the phase just changed TO day, clear any lingering stress message
+     if (nextPhase && gameState.timeOfDay === 'day') {
+         clearMessage();
+         showMessage(`Day ${gameState.day} starting.`); // Re-show day message
+     }
 }
 
 
-// Function to set the game over state and trigger UI updates
+// Function to set the game over state and trigger UI/visual updates
 function triggerGameOver(reason) {
     if (gameState.gameOver) return; // Prevent multiple triggers
 

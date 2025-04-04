@@ -11,7 +11,7 @@
         <canvas id="game-canvas"></canvas>
     </div>
 
-    <!-- *** Single UI Overlay Panel *** -->
+    <!-- Single UI Overlay Panel -->
     <div id="ui-overlay">
 
         <!-- Status Section -->
@@ -60,11 +60,16 @@
             <div id="message-log" class="message"></div>
         </div>
 
-        <!-- *** Night Allocation Section (Moved inside overlay, hidden by default) *** -->
+        <!-- Night Allocation Section -->
         <div id="allocation-section" class="ui-section hidden">
             <h3>Night Allocation (Day <span id="allocation-day">0</span> End)</h3>
+            <!-- Added Timer Display -->
+            <div class="timer-display">
+                Time Left: <span id="allocation-timer">5</span>s
+            </div>
+            <!-- End Timer Display -->
             <p>Available Carbon: <span id="available-carbon">0</span></p>
-            <!-- Existing allocation controls will be replaced in Step 5 -->
+            <!-- Legacy controls (will be replaced) -->
             <div id="legacy-allocation-controls">
                 <div class="allocation-control">
                     <label for="growth-slider">Allocate to Growth:</label>
@@ -74,16 +79,14 @@
                 <p>Seeds Cost: <span id="seed-cost-info">10</span> Carbon each</p>
                 <p>Result: <span id="allocation-growth-carbon">0</span> C Growth, <span id="allocation-seed-carbon">0</span> C for <span id="allocation-seed-count">0</span> Seeds</p>
             </div>
-            <!-- Timer will be added in Step 4 -->
             <button id="submit-allocation">Allocate & Start New Day</button>
         </div>
-        <!-- *** End Allocation Section *** -->
 
     </div>
-    <!-- *** End UI Overlay Panel *** -->
+    <!-- End UI Overlay Panel -->
 
 
-    <!-- Game Over Modal (Keep separate for now, as it overlays everything) -->
+    <!-- Game Over Modal (Separate) -->
     <div id="game-over-modal" class="modal hidden">
         <h2>Game Over!</h2>
         <p id="game-over-reason"></p>
@@ -100,6 +103,7 @@
             }
         }
     </script>
+    <!-- Load only the main entry point -->
     <script type="module" src="main.js"></script>
 </body>
 </html>

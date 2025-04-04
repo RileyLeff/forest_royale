@@ -1,7 +1,7 @@
 import * as Config from './config.js';
-import { calculateDimensions } from './tree.js'; // Need this for initialization
+// NOTE: calculateDimensions is called from main.js after tree creation now
+// to avoid circular dependencies during initialization.
 
-// The single source of truth for the game's state
 export const gameState = {};
 
 // Initializes or resets the game state object
@@ -19,7 +19,7 @@ export function initializeGameState() {
         timeOfDay: 'day', // 'day' or 'night'
         timeInCycle: 0,   // Seconds elapsed in current day/night phase
         droughtFactor: 1.0, // Environmental factor affecting transpiration
-        isPaused: false,    // For allocation modal/phase
+        isPaused: false,    // For allocation phase
         gameOver: false,
         gameOverReason: '', // Store the reason for game over
         treeMeshGroup: null,// Reference to the THREE.Group for the tree
@@ -27,25 +27,15 @@ export function initializeGameState() {
         // Colors
         leafColor: Config.DEFAULT_LEAF_COLOR,
         trunkColor: Config.DEFAULT_TRUNK_COLOR,
-        // Allocation Timer
+        // Allocation Timer - added null initialization
         allocationTimerId: null,
-        // Derived dimensions (calculated after basic state is set)
+        // Derived dimensions - initialized to 0, calculated later
         trunkWidth: 0,
         trunkDepth: 0,
         canopyWidth: 0,
         canopyDepth: 0,
     });
-
-    // Calculate initial dimensions based on the reset state
-    calculateDimensions(gameState); // Updates gameState directly
 }
 
-// Example of a specific state modifier (optional, could just modify gameState directly)
-// export function setGameOver(reason) {
-//     gameState.gameOver = true;
-//     gameState.gameOverReason = reason;
-//     gameState.isPaused = true; // Often want to pause on game over
-// }
-
-// Call initialize once on load to ensure gameState object exists
+// Call initialize once on load to ensure gameState object exists with defaults
 initializeGameState();

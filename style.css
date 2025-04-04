@@ -47,6 +47,7 @@ body, html {
     padding: 10px;
     border-radius: 5px;
     background-color: rgba(30, 30, 30, 0.5); /* Slightly transparent section background */
+    pointer-events: auto; /* Make sections interactive */
 }
 
 .ui-section h3 {
@@ -58,21 +59,23 @@ body, html {
     padding-bottom: 5px;
 }
 
-/* Make sections interactive */
-.ui-section {
-    pointer-events: auto;
-}
-
-/* *** NEW: Style for hidden sections *** */
+/* Style for hidden sections */
 .hidden {
     display: none;
 }
-/* *** END NEW *** */
 
 
-.status-bar-container, .controls-container > div, .info-container > div {
+.status-bar-container, /* Removed controls/info selectors here */
+#allocation-section p /* Target paragraphs in allocation section */
+{
     margin-bottom: 8px;
 }
+
+/* Target divs inside controls/info sections for spacing */
+.controls-container > div, .info-container > div {
+     margin-bottom: 8px;
+}
+
 
 .color-picker-container {
     display: flex;
@@ -136,7 +139,16 @@ input[type="range"] {
 .message.warning { color: #ff9800; }
 .message.error { color: #f44336; }
 
-/* Allocation Controls (Keep specific styling for now) */
+/* Styling for Allocation Timer */
+.timer-display {
+    font-weight: bold;
+    color: #ffcc00; /* Yellow color */
+    margin-bottom: 10px; /* Space below timer */
+    text-align: center;
+    font-size: 1.1em;
+}
+
+/* Legacy Allocation Controls Styling */
 .allocation-control {
     display: flex;
     align-items: center;
@@ -144,7 +156,8 @@ input[type="range"] {
     margin-top: 10px;
 }
 
-#allocation-section button { /* Style button within the section */
+/* Allocation Button Styling */
+#allocation-section button {
      padding: 10px 20px;
     margin-top: 15px;
     cursor: pointer;
@@ -160,7 +173,7 @@ input[type="range"] {
 }
 
 
-/* Game Over Modal Styling (Keep separate) */
+/* Game Over Modal Styling */
 .modal {
     position: fixed;
     top: 50%;
