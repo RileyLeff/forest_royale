@@ -2,24 +2,33 @@
 
 import { gameState } from './gameState.js';
 import * as Config from './config.js';
-// Import UI functions needed here
-import { showMessage, showAllocationSection, showGameOverUI, clearMessage } from './ui.js';
+// Import necessary UI functions
+import { showMessage, showAllocationSection, showGameOverUI, clearMessage } from './ui.js'; // Make sure clearMessage is imported
 import { updateCanopyVisuals, setCanopyVisibility } from './tree.js';
 import { sunLight } from './sceneSetup.js'; // Need to control light
 
 // --- NEW: Exported function to handle starting a new day ---
 export function startNewDay() {
-    if (gameState.gameOver) return; // Don't start a new day if game over
+    console.log("SIM: startNewDay called."); // Log start
+    if (gameState.gameOver) {
+        console.log("SIM: Game over, returning from startNewDay."); // Log
+        return;
+    }
 
     gameState.timeOfDay = 'day';
     gameState.day++;
     gameState.timeInCycle = 0; // Reset timer for the new day
+    console.log(`SIM: State updated - Day ${gameState.day}, TimeOfDay 'day', TimeInCycle 0`); // Log state change
 
     // Update lighting
     if (sunLight) {
         sunLight.intensity = 1.5;
         sunLight.position.set(30, 50, 20);
+        console.log("SIM: Sunlight updated."); // Log
+    } else {
+        console.warn("SIM: sunLight not found in startNewDay."); // Warn if missing
     }
+
 
     // Clear any lingering messages (like allocation timeout warning)
     clearMessage();
@@ -30,7 +39,7 @@ export function startNewDay() {
     // gameState.droughtFactor = 1.0 + Math.random() * 0.5;
     // showMessage(`Day ${gameState.day} starting. Drought: ${gameState.droughtFactor.toFixed(1)}`);
 
-    console.log(`Starting Day ${gameState.day}`);
+    console.log(`SIM: Finished startNewDay for Day ${gameState.day}.`); // Log end
 }
 
 
@@ -59,7 +68,6 @@ export function updateSimulation(deltaTime) {
         }
     }
     // --- REMOVED the else block that handled night-to-day transition ---
-    // It's now handled by startNewDay() called from ui.js
 
 
     // --- Run physiological simulation only during the day ---
@@ -91,7 +99,10 @@ export function updateSimulation(deltaTime) {
             updateCanopyVisuals(gameState);
             showMessage(`Hydraulic stress! Canopy damage! Safety: ${gameState.hydraulicSafety.toFixed(0)}`, 'warning');
         } else {
-             if (wasStressed) { clearMessage(); } // Clear stress message on recovery
+             // If safety is now above threshold AND it *was* stressed just before
+             if (wasStressed) {
+                 clearMessage(); // Clear the stress message now that it's recovered
+             }
              if (gameState.damagedLAPercentage === 0) { updateCanopyVisuals(gameState); } // Reset color if needed
         }
 
@@ -105,6 +116,7 @@ export function updateSimulation(deltaTime) {
             return; // Stop further simulation this frame
         }
     }
+    // Note: Day start message logic removed from here, handled by startNewDay
 }
 
 

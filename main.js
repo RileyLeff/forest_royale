@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import { gameState, initializeGameState } from './gameState.js';
-import * as Config from './config.js'; // Might be needed for direct checks? Usually not.
-// ++ CORRECTED Import: Only import scene once ++
+import * as Config from './config.js'; // Import config if needed directly
 import { initScene, renderer, camera, controls, scene } from './sceneSetup.js';
 // Import necessary tree functions for initialization and restart
 import { createPlayerTree, calculateDimensions, disposeTreeMaterials } from './tree.js';
 // Import necessary UI functions
 import { cacheDOMElements, setupUIListeners, updateUI, clearMessage, hideAllocationSection } from './ui.js';
 import { updateSimulation } from './simulation.js';
-// ++ REMOVED Duplicate import of scene here ++
+// Import scene explicitly for cleanup in restart (if not already imported via sceneSetup exports)
+// import { scene } from './sceneSetup.js'; // Already imported via named exports
 
 // --- Global Variables ---
 let clock = new THREE.Clock();
@@ -40,7 +40,9 @@ function initializeApp() {
 
     // Reset camera target *after* tree exists and has dimensions
      if (controls) {
-        controls.target.set(0, gameState.trunkHeight / 2, 0);
+        // Use default height from Config if gameState hasn't updated yet
+        const targetY = (gameState.trunkHeight || Config.INITIAL_TRUNK_HEIGHT) / 2;
+        controls.target.set(0, targetY, 0);
         controls.update(); // Apply immediately
      } else {
          console.warn("OrbitControls not available to set target.");
@@ -66,6 +68,10 @@ function gameLoop() {
 
     // Get time delta for simulation updates
     const deltaTime = clock.getDelta();
+
+    // Log current state *before* updateSimulation (Optional, can be noisy)
+    // console.log(`MAIN: Loop - Day ${gameState.day}, ${gameState.timeOfDay}, Paused:${gameState.isPaused}, Over:${gameState.gameOver}, TimeInCycle:${gameState.timeInCycle.toFixed(1)}`);
+
 
     // --- Core Loop Logic ---
     // 1. Update Simulation (handles game logic, physics, time progression)
@@ -110,36 +116,40 @@ function startGameLoop() {
 // --- Exported Restart Handler ---
 // This function is called by the button listener in ui.js
 export function handleRestart() {
-    console.log("Handling Restart Request...");
-
-    // ++ REMOVED import { scene } from './sceneSetup.js'; from here ++
+    console.log("MAIN: Handling Restart Request..."); // Log in main
 
     // Stop potentially running timers etc. (e.g., allocation timer)
-    hideAllocationSection();
+    hideAllocationSection(); // Calls clearAllocationTimer internally
 
     // Clean up old Three.js resources
     if (gameState.treeMeshGroup) {
-         // Check if scene exists before removing from it (scene is available from top-level import)
+         // Check if scene exists before removing from it
          if(scene) {
              scene.remove(gameState.treeMeshGroup);
+             console.log("MAIN: Old tree mesh removed from scene."); // Log cleanup
          } else {
-             console.warn("Scene not found during tree cleanup.");
+             console.warn("MAIN: Scene not found during tree cleanup.");
          }
          disposeTreeMaterials(); // Dispose materials associated with tree.js
          gameState.treeMeshGroup = null; // Clear reference in state
     } else {
+        console.log("MAIN: No old tree mesh group found to remove."); // Log if no tree
         // If no tree group exists, still ensure materials are cleared
         disposeTreeMaterials();
     }
 
+
     // Reset game state logic using the function from gameState.js
     initializeGameState();
+    console.log("MAIN: Game state initialized."); // Log state reset
 
     // Calculate dimensions for the newly reset state
     calculateDimensions(gameState);
+    console.log("MAIN: Dimensions calculated."); // Log calculation
 
     // Create new tree visuals based on the reset state
     createPlayerTree(gameState);
+    console.log("MAIN: New player tree created."); // Log tree creation
 
     // Reset camera target to the new tree
     if (controls) {
@@ -147,18 +157,21 @@ export function handleRestart() {
         const targetY = (gameState.trunkHeight || Config.INITIAL_TRUNK_HEIGHT) / 2;
         controls.target.set(0, targetY, 0);
         controls.update(); // Apply target change immediately
+        console.log("MAIN: Camera target reset."); // Log camera reset
     }
 
     // Reset UI display elements to reflect initial state
     updateUI();
     clearMessage(); // Clear any game over message
 
-    // Ensure simulation is unpaused and game over is false (handled by initializeGameState)
+    // Ensure simulation is unpaused and game over is false (should be handled by initializeGameState)
+    // gameState.isPaused = false;
+    // gameState.gameOver = false;
 
     // Ensure the loop is running (it should be, but doesn't hurt to ensure)
-    startGameLoop();
+    // startGameLoop(); // Loop should still be running, just controlled by isPaused/gameOver flags
 
-    console.log("Game Restarted successfully.");
+    console.log("MAIN: Game Restarted successfully.");
 }
 
 
