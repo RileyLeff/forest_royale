@@ -119,7 +119,6 @@ label {
 
 /* General Slider Styling */
 input[type="range"] {
-    /* width: calc(100% - 50px); /* Adjust if needed based on context */
     vertical-align: middle;
     cursor: pointer;
 }
@@ -151,10 +150,10 @@ input[type="range"] {
     text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
     /* animation: pulse 2s infinite ease-in-out; */
 }
-/* @keyframes pulse { ... } */
+/* @keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.05); opacity: 0.9; } 100% { transform: scale(1); opacity: 1; } } */
 
 
-/* ++ NEW Styling for Allocation Sliders ++ */
+/* Styling for Allocation Sliders */
 .allocation-slider-group {
     margin-bottom: 15px;
     border-bottom: 1px solid #555;
@@ -162,22 +161,22 @@ input[type="range"] {
 }
 
 .allocation-slider-row {
-    display: grid; /* Use grid for alignment */
+    display: grid;
     grid-template-columns: auto 1fr auto; /* Label | Slider | Percentage */
     gap: 8px;
     align-items: center;
-    margin-bottom: 10px; /* Space between slider rows */
+    margin-bottom: 10px;
 }
 
 .allocation-slider-row label {
     grid-column: 1 / 2;
-    justify-self: start; /* Align label to the left */
-    white-space: nowrap; /* Prevent label wrapping */
+    justify-self: start;
+    white-space: nowrap;
 }
 
 .allocation-slider-row input[type="range"] {
     grid-column: 2 / 3;
-    width: 100%; /* Slider takes available space */
+    width: 100%;
 }
 
 .allocation-slider-row .slider-percentage {
@@ -185,8 +184,8 @@ input[type="range"] {
     font-size: 0.85em;
     font-weight: bold;
     color: #ccc;
-    min-width: 75px; /* Reserve space for text like "50% G / 50% S" */
-    text-align: right; /* Align percentage text to the right */
+    min-width: 75px;
+    text-align: right;
     white-space: nowrap;
 }
 
@@ -194,16 +193,11 @@ input[type="range"] {
     font-size: 0.8em;
     text-align: right;
     color: #aaa;
-    margin-top: 5px; /* Adjust spacing */
+    margin-top: 5px;
     margin-bottom: 0;
 }
 
-/* ++ Remove Styles for Old Number Inputs (If they existed) ++ */
-/* .allocation-input-group { display: none; } */
-/* .allocation-input-row { display: none; } */
-
-
-/* Allocation Summary Styling (adjust spacing) */
+/* Allocation Summary Styling */
 .allocation-summary {
     margin-bottom: 15px;
     border-bottom: 1px solid #555;
@@ -235,10 +229,69 @@ input[type="range"] {
 }
 
 
-/* Game Over Modal Styling */
-.modal { /* ... unchanged ... */ }
-.modal.hidden { /* ... unchanged ... */ }
-/* ... rest of modal styles ... */
+/* === Game Over Modal Styling === */
+.modal {
+    position: fixed; /* Position relative to the viewport */
+    top: 50%;         /* Center vertically */
+    left: 50%;        /* Center horizontally */
+    transform: translate(-50%, -50%); /* Precise centering adjustment */
+    background-color: rgba(40, 40, 40, 0.9); /* Dark semi-transparent background */
+    padding: 20px;    /* Internal spacing */
+    border: 1px solid #666; /* Subtle border */
+    border-radius: 10px; /* Rounded corners */
+    z-index: 100;     /* Ensure it's on top of other UI elements */
+    min-width: 300px; /* Minimum width */
+    text-align: center; /* Center text inside */
+    pointer-events: auto; /* Allow interaction with the modal */
+    color: #eee;       /* Default text color inside modal */
+}
+
+.modal.hidden {
+    display: none; /* This rule hides the modal when the 'hidden' class is present */
+}
+
+/* Styling for elements *inside* the modal */
+.modal h2 {
+    margin-top: 0; /* Remove default top margin from heading */
+    color: #eee;   /* Ensure heading color is visible */
+    margin-bottom: 15px; /* Space below heading */
+}
+
+/* Ensure paragraphs inside modal are visible */
+.modal p {
+     color: #eee; /* Explicitly set text color for paragraphs inside */
+     margin: 10px 0; /* Add some spacing around paragraphs */
+     line-height: 1.4; /* Improve readability */
+}
+
+/* Style the spans inside the second paragraph (Day/Seed counts) */
+.modal p span {
+    font-weight: bold; /* Make day/seed counts bold */
+    color: #ffc107; /* Optional: Highlight numbers in amber */
+}
+
+/* Explicitly style the reason paragraph if needed */
+#game-over-reason {
+    font-style: italic; /* Example: make reason italic */
+    color: #ffdddd; /* Example: slightly different color for reason */
+    margin-bottom: 20px !important; /* More space below the reason */
+}
+
+
+.modal button {
+    padding: 10px 20px;
+    margin-top: 20px; /* More space above button */
+    cursor: pointer;
+    background-color: #555;
+    border: none;
+    color: #eee;
+    border-radius: 5px;
+}
+.modal button:hover {
+    background-color: #777;
+}
+/* === End Game Over Modal Styling === */
+
 
 /* Interactive elements */
 input[type="range"], input[type="color"], input[type="number"], button {
