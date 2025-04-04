@@ -64,33 +64,37 @@
         <div id="allocation-section" class="ui-section hidden">
             <h3>Night Allocation (Day <span id="allocation-day">0</span> End)</h3>
             <div class="timer-display">
-                Time Left: <span id="allocation-timer">5</span>s
+                Time Left: <span id="allocation-timer">10</span>s <!-- Timer text updated -->
             </div>
-            <!-- Updated Available Carbon ID -->
             <p>Available Carbon: <span id="allocation-available-carbon">0</span></p>
 
-            <!-- NEW Allocation Inputs -->
-            <div class="allocation-input-group">
-                <div class="allocation-input-row">
-                    <label for="growth-input">Carbon for Growth:</label>
-                    <input type="number" id="growth-input" min="0" step="1" value="0">
+            <!-- ++ NEW Slider Controls ++ -->
+            <div class="allocation-slider-group">
+                <div class="allocation-slider-row">
+                    <label for="savings-slider">Savings %:</label>
+                    <input type="range" id="savings-slider" min="0" max="100" step="1" value="50">
+                    <span class="slider-percentage" id="savings-percentage">50%</span>
                 </div>
-                 <div class="allocation-input-row">
-                    <label for="seed-input">Carbon for Seeds:</label>
-                    <input type="number" id="seed-input" min="0" step="1" value="0">
-                 </div>
-                 <p class="allocation-info">Seed Cost: <span id="seed-cost-info">10</span> C each</p>
+                <div class="allocation-slider-row">
+                     <!-- Label reflects what the slider controls: ratio of spending -->
+                    <label for="growth-ratio-slider">Growth/Seed Ratio:</label>
+                    <input type="range" id="growth-ratio-slider" min="0" max="100" step="1" value="50">
+                    <!-- Span shows interpretation -->
+                    <span class="slider-percentage" id="growth-ratio-percentage">50% G / 50% S</span>
+                </div>
+                 <p class="allocation-info">Seed Cost: <span id="seed-cost-info">1</span> C each</p>
             </div>
-            <!-- END NEW Inputs -->
+            <!-- ++ END NEW Slider Controls ++ -->
 
-            <!-- NEW Allocation Summary -->
+            <!-- ++ REMOVED Old Input Group ++ -->
+            <!-- <div class="allocation-input-group"> ... </div> -->
+
+            <!-- Allocation Summary (Kept) -->
             <div class="allocation-summary">
                  <p>Allocated: <span id="allocation-spent-carbon">0</span> C</p>
-                 <!-- Changed spans for clarity -->
                  <p>Result: <span id="allocation-growth-result">0</span> C Growth, <span id="allocation-seeds-result">0</span> Seeds</p>
                  <p>Remaining Savings: <span id="allocation-saved-carbon">0</span> C</p>
             </div>
-             <!-- END NEW Summary -->
 
             <button id="submit-allocation">Allocate & Start New Day</button>
         </div>

@@ -18,11 +18,10 @@ export const HYDRAULIC_DAMAGE_THRESHOLD = 20; // Below this, start taking damage
 export const CROWN_DIEBACK_RATE = 0.05;      // Proportion of canopy LA potentially lost per second below threshold
 
 export const GROWTH_COST_PER_LA = 5;        // Carbon cost to add 1 unit of LA (includes implicit trunk cost)
-// ++ UPDATED Seed Cost ++
-export const SEED_COST = 1;                 // Carbon cost per seed (Changed from 10)
+export const SEED_COST = 1;                 // Carbon cost per seed (Already updated)
 
 export const DAY_DURATION_SECONDS = 20;     // Duration of daytime
-export const NIGHT_DURATION_SECONDS = 8;     // Duration of nighttime (Kept for now, but phase will be skipped)
+export const NIGHT_DURATION_SECONDS = 8;     // Duration of nighttime (Still exists conceptually, but idle phase skipped)
 
 export const ISLAND_RADIUS = 50;
 export const WATER_LEVEL = 0;
@@ -33,4 +32,4 @@ export const DEFAULT_TRUNK_COLOR = '#8B4513'; // Saddle Brown
 
 // UI Related
 // ++ UPDATED Timer Duration ++
-export const ALLOCATION_TIMER_DURATION = 7; // Seconds for allocation decision (Changed from 5)
+export const ALLOCATION_TIMER_DURATION = 10; // Seconds for allocation decision (Changed from 7)

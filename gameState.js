@@ -27,8 +27,14 @@ export function initializeGameState() {
         // Colors
         leafColor: Config.DEFAULT_LEAF_COLOR,
         trunkColor: Config.DEFAULT_TRUNK_COLOR,
-        // Allocation Timer - added null initialization
+        // Allocation Timer
         allocationTimerId: null,
+
+        // ++ NEW: Store last used allocation percentages ++
+        lastSavingsPercent: 50, // Default to 50% savings initially
+        lastGrowthRatioPercent: 50, // Default to 50/50 growth/seed split initially
+        // ++ END NEW ++
+
         // Derived dimensions - initialized to 0, calculated later
         trunkWidth: 0,
         trunkDepth: 0,
