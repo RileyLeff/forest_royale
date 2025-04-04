@@ -1,9 +1,9 @@
 // UI Module: Handles DOM interactions, updates, and listeners
 
-import { gameState } from './gameState.js'; // Don't need initializeGameState here directly
+import { gameState } from './gameState.js';
 import * as Config from './config.js';
-import { growTree, updateTreeColors, setCanopyVisibility } from './tree.js'; // Need growTree for random allocation
-import { handleRestart } from './main.js'; // Import restart handler from main
+import { growTree, updateTreeColors, setCanopyVisibility } from './tree.js';
+import { handleRestart } from './main.js';
 
 // DOM Element References (cached)
 let uiElements = {};
@@ -31,16 +31,21 @@ export function cacheDOMElements() {
         // Allocation Section
         allocationSection: document.getElementById('allocation-section'),
         allocationDayUI: document.getElementById('allocation-day'),
-        availableCarbonUI: document.getElementById('available-carbon'),
-        // Timer Element
         allocationTimerUI: document.getElementById('allocation-timer'),
-        // Legacy Allocation Controls (will be replaced)
-        growthSlider: document.getElementById('growth-slider'),
-        growthPercentageUI: document.getElementById('growth-percentage'),
-        allocationGrowthCarbonUI: document.getElementById('allocation-growth-carbon'),
-        allocationSeedCarbonUI: document.getElementById('allocation-seed-carbon'),
-        allocationSeedCountUI: document.getElementById('allocation-seed-count'),
-        seedCostInfoUI: document.getElementById('seed-cost-info'),
+        // Updated Available Carbon ID
+        allocationAvailableCarbonUI: document.getElementById('allocation-available-carbon'),
+
+        // NEW Allocation Inputs/Info
+        growthInput: document.getElementById('growth-input'),
+        seedInput: document.getElementById('seed-input'),
+        seedCostInfoUI: document.getElementById('seed-cost-info'), // Keep this one
+
+        // NEW Allocation Summary
+        allocationSpentCarbonUI: document.getElementById('allocation-spent-carbon'),
+        allocationGrowthResultUI: document.getElementById('allocation-growth-result'), // For summary text
+        allocationSeedsResultUI: document.getElementById('allocation-seeds-result'),   // For summary text
+        allocationSavedCarbonUI: document.getElementById('allocation-saved-carbon'),
+
         // Allocation Button
         submitAllocationButton: document.getElementById('submit-allocation'),
         // Game Over Modal
@@ -50,10 +55,14 @@ export function cacheDOMElements() {
         finalSeedsUI: document.getElementById('final-seeds'),
         restartButton: document.getElementById('restart-button'),
     };
-     // Simple check if timer exists
-     if (!uiElements.allocationTimerUI) console.warn("UI element not found: allocation-timer");
-     // Check other critical elements
-     if (!uiElements.allocationSection) console.error("Allocation section UI element not found!");
+     // Check new elements
+     if (!uiElements.growthInput) console.warn("UI element not found: growth-input");
+     if (!uiElements.seedInput) console.warn("UI element not found: seed-input");
+     if (!uiElements.allocationAvailableCarbonUI) console.warn("UI element not found: allocation-available-carbon");
+     if (!uiElements.allocationSpentCarbonUI) console.warn("UI element not found: allocation-spent-carbon");
+     if (!uiElements.allocationSavedCarbonUI) console.warn("UI element not found: allocation-saved-carbon");
+     if (!uiElements.allocationGrowthResultUI) console.warn("UI element not found: allocation-growth-result");
+     if (!uiElements.allocationSeedsResultUI) console.warn("UI element not found: allocation-seeds-result");
 }
 
 
@@ -66,17 +75,21 @@ export function setupUIListeners() {
     }
 
     uiElements.stomataSlider.addEventListener('input', handleStomataChange);
-    // Rename handler for clarity
     uiElements.submitAllocationButton.addEventListener('click', handleSubmitAllocationManual);
-    uiElements.restartButton.addEventListener('click', handleRestart); // Call main restart handler
+    uiElements.restartButton.addEventListener('click', handleRestart);
     uiElements.leafColorPicker.addEventListener('input', handleLeafColorChange);
     uiElements.trunkColorPicker.addEventListener('input', handleTrunkColorChange);
 
-    // Listener for legacy growth slider (will be removed/changed in Step 5)
-    if (uiElements.growthSlider) {
-        uiElements.growthSlider.addEventListener('input', updateAllocationPreview);
+    // NEW: Add listeners to new input fields
+    if (uiElements.growthInput) {
+        uiElements.growthInput.addEventListener('input', updateAllocationPreview);
     } else {
-        console.warn("Legacy growth slider not found - preview update disabled.");
+         console.warn("Growth input element not found, listener not added.");
+    }
+    if (uiElements.seedInput) {
+        uiElements.seedInput.addEventListener('input', updateAllocationPreview);
+    } else {
+         console.warn("Seed input element not found, listener not added.");
     }
 }
 
@@ -98,11 +111,8 @@ function handleTrunkColorChange(e) {
     updateTreeColors(gameState); // Update tree visuals immediately
 }
 
-// Renamed: Handles manual click on the submit button
 function handleSubmitAllocationManual() {
-    // Always clear the timer when submitting manually
     clearAllocationTimer();
-    // Proceed with the allocation logic
     submitAllocation(false); // Call core logic, indicating not random
 }
 
@@ -155,29 +165,33 @@ export function clearMessage() {
 export function showAllocationSection() {
     if (gameState.gameOver || !uiElements.allocationSection) return;
 
-    gameState.isPaused = true; // Pause simulation when allocation starts
+    gameState.isPaused = true;
     const availableCarbon = Math.floor(gameState.carbonStorage);
 
-    // Update UI elements within the allocation section
-    if(uiElements.availableCarbonUI) uiElements.availableCarbonUI.textContent = availableCarbon;
+    // Update UI display for the section
+    if(uiElements.allocationAvailableCarbonUI) uiElements.allocationAvailableCarbonUI.textContent = availableCarbon;
     if(uiElements.allocationDayUI) uiElements.allocationDayUI.textContent = gameState.day;
+    if(uiElements.seedCostInfoUI) uiElements.seedCostInfoUI.textContent = Config.SEED_COST;
 
-    // Setup legacy slider (will change in Step 5)
-    if (uiElements.growthSlider) {
-        uiElements.growthSlider.max = availableCarbon;
-        // Default slider value, ensuring it's not more than available
-        uiElements.growthSlider.value = Math.min(availableCarbon, Math.floor(availableCarbon / 2));
+    // Set initial state and constraints for the NEW input fields
+    if(uiElements.growthInput) {
+        uiElements.growthInput.value = 0; // Start at 0
+        uiElements.growthInput.max = availableCarbon; // Set max dynamically
     } else {
-        console.warn("Legacy growth slider not found in showAllocationSection.");
+        console.warn("Growth input missing in showAllocationSection.");
     }
-    if (uiElements.seedCostInfoUI) uiElements.seedCostInfoUI.textContent = Config.SEED_COST;
+     if(uiElements.seedInput) {
+        uiElements.seedInput.value = 0; // Start at 0
+        uiElements.seedInput.max = availableCarbon; // Set max dynamically
+    } else {
+        console.warn("Seed input missing in showAllocationSection.");
+    }
 
-    updateAllocationPreview(); // Update text based on initial slider value
+    updateAllocationPreview(); // Update summary text based on initial 0 values
 
     // Show the section
     uiElements.allocationSection.classList.remove('hidden');
 
-    // Start Allocation Timer
     startAllocationTimer();
 }
 
@@ -185,66 +199,78 @@ export function hideAllocationSection() {
     if (uiElements.allocationSection) {
         uiElements.allocationSection.classList.add('hidden');
     }
-    // Always clear timer when hiding (might be hidden manually or via submit)
+    // Always clear timer when hiding
     clearAllocationTimer();
     gameState.isPaused = false; // Resume simulation
 }
 
-// Updates the text preview based on allocation choices (Legacy version)
+// --- Rewritten Allocation Preview ---
 function updateAllocationPreview() {
-    if (!uiElements.growthSlider) return; // Only run if legacy elements exist
+    // Check if new inputs exist before proceeding
+    if (!uiElements.growthInput || !uiElements.seedInput || !uiElements.allocationAvailableCarbonUI) return;
 
-    const available = Math.floor(gameState.carbonStorage);
-    let growthAllocation = parseInt(uiElements.growthSlider.value) || 0;
+    const availableCarbon = Math.floor(gameState.carbonStorage);
 
-    // Clamp value and update slider visually if needed
-    growthAllocation = Math.max(0, Math.min(available, growthAllocation));
-    uiElements.growthSlider.value = growthAllocation;
-    uiElements.growthSlider.max = available; // Update max in case available C changed
+    // Get intended values from input fields, default to 0
+    let intendedGrowthCarbon = parseInt(uiElements.growthInput.value) || 0;
+    let intendedSeedCarbon = parseInt(uiElements.seedInput.value) || 0;
 
-    const growthPercent = available > 0 ? Math.round((growthAllocation / available) * 100) : 0;
-    const carbonForSeeds = available - growthAllocation;
-    const seedsToMake = carbonForSeeds >= 0 ? Math.floor(carbonForSeeds / Config.SEED_COST) : 0;
+    // Ensure non-negative values directly on read
+    intendedGrowthCarbon = Math.max(0, intendedGrowthCarbon);
+    intendedSeedCarbon = Math.max(0, intendedSeedCarbon);
+
+    // Apply constraints: Total allocation cannot exceed available carbon
+    let totalIntended = intendedGrowthCarbon + intendedSeedCarbon;
+    if (totalIntended > availableCarbon) {
+        // Reduce proportionally (or other strategy)
+        const excess = totalIntended - availableCarbon;
+        const proportionGrowth = totalIntended > 0 ? intendedGrowthCarbon / totalIntended : 0.5;
+        const proportionSeed = totalIntended > 0 ? intendedSeedCarbon / totalIntended : 0.5;
+
+        intendedGrowthCarbon = Math.floor(intendedGrowthCarbon - excess * proportionGrowth);
+        intendedSeedCarbon = Math.floor(intendedSeedCarbon - excess * proportionSeed);
+
+        // Adjust if still over due to rounding
+        totalIntended = intendedGrowthCarbon + intendedSeedCarbon;
+        if (totalIntended > availableCarbon) {
+            intendedSeedCarbon -= (totalIntended - availableCarbon); // Take remainder from seeds
+        }
+        // Ensure non-negative again after adjustment
+        intendedSeedCarbon = Math.max(0, intendedSeedCarbon);
+
+        // Update input fields visually to reflect the constrained values
+        uiElements.growthInput.value = intendedGrowthCarbon;
+        uiElements.seedInput.value = intendedSeedCarbon;
+    }
+
+    // Calculate results based on constrained values
+    const seedsToMake = Math.floor(intendedSeedCarbon / Config.SEED_COST);
     const actualCarbonForSeeds = seedsToMake * Config.SEED_COST;
-    // Growth gets whatever is left after integer seeds are paid for
-    const actualCarbonForGrowth = available - actualCarbonForSeeds;
+    const actualCarbonForGrowth = intendedGrowthCarbon; // Use the (potentially constrained) growth value
 
-    // Update UI text elements
-    if(uiElements.growthPercentageUI) uiElements.growthPercentageUI.textContent = growthPercent;
-    if(uiElements.allocationGrowthCarbonUI) uiElements.allocationGrowthCarbonUI.textContent = actualCarbonForGrowth;
-    if(uiElements.allocationSeedCarbonUI) uiElements.allocationSeedCarbonUI.textContent = actualCarbonForSeeds;
-    if(uiElements.allocationSeedCountUI) uiElements.allocationSeedCountUI.textContent = seedsToMake;
+    const totalSpent = actualCarbonForGrowth + actualCarbonForSeeds;
+    const carbonSaved = availableCarbon - totalSpent;
 
-     // Re-adjust slider if seed granularity changed the growth amount available
-     if(uiElements.growthSlider.value != actualCarbonForGrowth) {
-          uiElements.growthSlider.value = actualCarbonForGrowth;
-     }
+    // Update summary text elements, checking they exist
+    if(uiElements.allocationSpentCarbonUI) uiElements.allocationSpentCarbonUI.textContent = totalSpent;
+    if(uiElements.allocationGrowthResultUI) uiElements.allocationGrowthResultUI.textContent = actualCarbonForGrowth;
+    if(uiElements.allocationSeedsResultUI) uiElements.allocationSeedsResultUI.textContent = seedsToMake;
+    if(uiElements.allocationSavedCarbonUI) uiElements.allocationSavedCarbonUI.textContent = carbonSaved;
 }
 
 
 // --- Timer Logic ---
-
 function startAllocationTimer() {
     clearAllocationTimer(); // Ensure no previous timer is running
-
     let timeLeft = Config.ALLOCATION_TIMER_DURATION;
     if (uiElements.allocationTimerUI) {
         uiElements.allocationTimerUI.textContent = timeLeft; // Set initial display
-    } else {
-        console.warn("Allocation timer UI element missing.");
-    }
-
+    } else { console.warn("Allocation timer UI element missing."); }
 
     gameState.allocationTimerId = setInterval(() => {
         timeLeft--;
-         if (uiElements.allocationTimerUI) {
-            uiElements.allocationTimerUI.textContent = timeLeft;
-         }
-
-        if (timeLeft <= 0) {
-            // Timer finished, trigger random allocation
-            submitRandomAllocation();
-        }
+         if (uiElements.allocationTimerUI) uiElements.allocationTimerUI.textContent = timeLeft;
+        if (timeLeft <= 0) { submitRandomAllocation(); } // Timer finished
     }, 1000); // Tick every second
 }
 
@@ -255,79 +281,78 @@ function clearAllocationTimer() {
     }
 }
 
-// --- Allocation Submission (Core Logic, used by manual & random) ---
-
-// This function contains the logic to actually process an allocation decision
+// --- Rewritten Allocation Submission Logic ---
 function submitAllocation(isRandom = false) {
-     // --- Determine Allocation Amounts ---
-     const available = Math.floor(gameState.carbonStorage);
-     let actualCarbonForGrowth = 0;
-     let seedsToMake = 0;
-     let actualCarbonForSeeds = 0; // Initialize here
+    const available = Math.floor(gameState.carbonStorage);
+    let actualCarbonForGrowth = 0;
+    let seedsToMake = 0;
+    let actualCarbonForSeeds = 0;
 
-     if (isRandom) {
-        // --- Random (Default) Allocation Strategy ---
-        // Example: Spend ~50% total, split ~equally between growth/seeds, save the rest
+    if (isRandom) {
+        // --- Random Allocation Strategy ---
         const targetSpend = Math.floor(available * 0.5);
-        // Prioritize growth slightly? Or seeds? Let's try splitting the target spend.
         const growthTarget = Math.floor(targetSpend * 0.5);
         const seedTarget = targetSpend - growthTarget;
-
         seedsToMake = seedTarget >= 0 ? Math.floor(seedTarget / Config.SEED_COST) : 0;
         actualCarbonForSeeds = seedsToMake * Config.SEED_COST;
-
-        // Growth gets the remaining part of the target spend, make sure it's not negative
         actualCarbonForGrowth = Math.max(0, targetSpend - actualCarbonForSeeds);
-        // Ensure we don't somehow spend more than allocated growth target (due to seed cost granularity)
         actualCarbonForGrowth = Math.min(growthTarget, actualCarbonForGrowth);
+    } else {
+        // --- Manual Allocation Strategy (using new inputs) ---
+        if (!uiElements.growthInput || !uiElements.seedInput) {
+            console.error("Allocation input elements not found for manual submission!");
+            hideAllocationSection(); return; // Exit if UI broken
+        }
+        let intendedGrowthCarbon = parseInt(uiElements.growthInput.value) || 0;
+        let intendedSeedCarbon = parseInt(uiElements.seedInput.value) || 0;
 
+        // Ensure non-negative
+        intendedGrowthCarbon = Math.max(0, intendedGrowthCarbon);
+        intendedSeedCarbon = Math.max(0, intendedSeedCarbon);
 
-     } else {
-         // --- Manual Allocation Strategy (using legacy slider for now) ---
-         if(uiElements.growthSlider){
-             const growthAllocationSlider = parseInt(uiElements.growthSlider.value) || 0;
-             // Clamp slider value to what's available
-             const growthAllocationClamped = Math.min(available, growthAllocationSlider);
-             const carbonForSeeds = available - growthAllocationClamped;
-             seedsToMake = carbonForSeeds >= 0 ? Math.floor(carbonForSeeds / Config.SEED_COST) : 0;
-             actualCarbonForSeeds = seedsToMake * Config.SEED_COST;
-             // Growth gets exactly what's left after seeds are paid for
-             actualCarbonForGrowth = available - actualCarbonForSeeds;
-         } else {
-              console.error("Growth slider not found for manual allocation!");
-              // Fallback: Allocate nothing if UI is broken
-              seedsToMake = 0;
-              actualCarbonForGrowth = 0;
-              actualCarbonForSeeds = 0;
-         }
-     }
+        // Re-apply constraints (same logic as preview)
+        let totalIntended = intendedGrowthCarbon + intendedSeedCarbon;
+        if (totalIntended > available) {
+            const excess = totalIntended - available;
+            const proportionGrowth = totalIntended > 0 ? intendedGrowthCarbon / totalIntended : 0.5;
+            const proportionSeed = totalIntended > 0 ? intendedSeedCarbon / totalIntended : 0.5;
+            intendedGrowthCarbon = Math.floor(intendedGrowthCarbon - excess * proportionGrowth);
+            intendedSeedCarbon = Math.floor(intendedSeedCarbon - excess * proportionSeed);
+            totalIntended = intendedGrowthCarbon + intendedSeedCarbon;
+            if (totalIntended > available) { intendedSeedCarbon -= (totalIntended - available); }
+            intendedSeedCarbon = Math.max(0, intendedSeedCarbon); // Ensure non-negative after adjustment
+        }
 
-    // --- Apply the calculated allocation ---
+        // Calculate final values based on potentially constrained inputs
+        seedsToMake = Math.floor(intendedSeedCarbon / Config.SEED_COST);
+        actualCarbonForSeeds = seedsToMake * Config.SEED_COST;
+        actualCarbonForGrowth = intendedGrowthCarbon; // Use constrained value
+    }
+
+    // --- Apply the final calculated allocation ---
     const totalSpent = actualCarbonForGrowth + actualCarbonForSeeds;
 
-    // Sanity check: ensure we don't spend more than available
+    // Final sanity checks
     if (totalSpent > available) {
-        console.error(`Attempted to spend ${totalSpent} C, but only ${available} available. Resetting allocation.`);
-        actualCarbonForGrowth = 0;
-        actualCarbonForSeeds = 0;
-        seedsToMake = 0;
+        console.error(`CRITICAL ERROR: Calculated spend ${totalSpent} C exceeds available ${available} C. Aborting allocation.`);
+        showMessage("Error calculating allocation. Allocation cancelled.", "error");
+    } else if (totalSpent < 0) {
+         console.error(`CRITICAL ERROR: Calculated spend ${totalSpent} C is negative. Aborting allocation.`);
+         showMessage("Error calculating allocation. Allocation cancelled.", "error");
     } else {
-        // Deduct carbon
+        // Deduct carbon (ONLY IF VALID)
         gameState.carbonStorage -= totalSpent;
-
         // Add seeds
         gameState.seedCount += seedsToMake;
-
-        // Apply growth visually/logically
+        // Apply growth
         if (actualCarbonForGrowth > 0) {
             growTree(gameState, actualCarbonForGrowth);
         }
+        console.log(`Allocated: Growth=${actualCarbonForGrowth}C, Seeds=${seedsToMake} (${actualCarbonForSeeds}C). Spent=${totalSpent}C. Saved=${available-totalSpent}C.`);
     }
 
-
     // --- Finalize ---
-    // Hide UI and resume simulation (hideAllocationSection handles this)
-    hideAllocationSection();
+    hideAllocationSection(); // Hides UI, clears timer, unpauses
     updateUI(); // Update status bars etc. immediately
 }
 
@@ -335,15 +360,13 @@ function submitAllocation(isRandom = false) {
 // Called ONLY when the timer runs out
 function submitRandomAllocation() {
     clearAllocationTimer(); // Ensure timer is stopped before proceeding
-    // Double check we are in the right state (paused for allocation, game not over)
-    if (gameState.isPaused && !gameState.gameOver) {
+    if (gameState.isPaused && !gameState.gameOver) { // Check state
         console.log("Allocation timer ran out! Making default choice.");
         showMessage("Time's up! Allocating automatically.", "warning");
         submitAllocation(true); // Call core logic with 'isRandom' flag
     } else {
-        // This case shouldn't normally happen if logic is correct
-        console.warn("submitRandomAllocation called but game not in paused allocation state.");
-        hideAllocationSection(); // Hide section anyway if it was somehow visible
+        console.warn("submitRandomAllocation called but game not in correct state.");
+        hideAllocationSection(); // Hide section anyway if visible
     }
 }
 
@@ -351,13 +374,9 @@ function submitRandomAllocation() {
 // --- Game Over UI ---
 export function showGameOverUI() {
     if (!uiElements.gameOverModal) return;
-
-    uiElements.gameOverReasonUI.textContent = gameState.gameOverReason;
-    uiElements.finalDayUI.textContent = gameState.day;
-    uiElements.finalSeedsUI.textContent = gameState.seedCount;
-
-    // Hide the canopy (visual change handled by simulation calling tree.js function)
-    setCanopyVisibility(gameState, false);
-
+    if(uiElements.gameOverReasonUI) uiElements.gameOverReasonUI.textContent = gameState.gameOverReason;
+    if(uiElements.finalDayUI) uiElements.finalDayUI.textContent = gameState.day;
+    if(uiElements.finalSeedsUI) uiElements.finalSeedsUI.textContent = gameState.seedCount;
+    setCanopyVisibility(gameState, false); // Visual change
     uiElements.gameOverModal.classList.remove('hidden');
 }

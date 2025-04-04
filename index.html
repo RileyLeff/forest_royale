@@ -63,24 +63,38 @@
         <!-- Night Allocation Section -->
         <div id="allocation-section" class="ui-section hidden">
             <h3>Night Allocation (Day <span id="allocation-day">0</span> End)</h3>
-            <!-- Added Timer Display -->
             <div class="timer-display">
                 Time Left: <span id="allocation-timer">5</span>s
             </div>
-            <!-- End Timer Display -->
-            <p>Available Carbon: <span id="available-carbon">0</span></p>
-            <!-- Legacy controls (will be replaced) -->
-            <div id="legacy-allocation-controls">
-                <div class="allocation-control">
-                    <label for="growth-slider">Allocate to Growth:</label>
-                    <input type="range" id="growth-slider" min="0" max="100" step="1" value="50">
-                    <span id="growth-percentage">50</span>%
+            <!-- Updated Available Carbon ID -->
+            <p>Available Carbon: <span id="allocation-available-carbon">0</span></p>
+
+            <!-- NEW Allocation Inputs -->
+            <div class="allocation-input-group">
+                <div class="allocation-input-row">
+                    <label for="growth-input">Carbon for Growth:</label>
+                    <input type="number" id="growth-input" min="0" step="1" value="0">
                 </div>
-                <p>Seeds Cost: <span id="seed-cost-info">10</span> Carbon each</p>
-                <p>Result: <span id="allocation-growth-carbon">0</span> C Growth, <span id="allocation-seed-carbon">0</span> C for <span id="allocation-seed-count">0</span> Seeds</p>
+                 <div class="allocation-input-row">
+                    <label for="seed-input">Carbon for Seeds:</label>
+                    <input type="number" id="seed-input" min="0" step="1" value="0">
+                 </div>
+                 <p class="allocation-info">Seed Cost: <span id="seed-cost-info">10</span> C each</p>
             </div>
+            <!-- END NEW Inputs -->
+
+            <!-- NEW Allocation Summary -->
+            <div class="allocation-summary">
+                 <p>Allocated: <span id="allocation-spent-carbon">0</span> C</p>
+                 <!-- Changed spans for clarity -->
+                 <p>Result: <span id="allocation-growth-result">0</span> C Growth, <span id="allocation-seeds-result">0</span> Seeds</p>
+                 <p>Remaining Savings: <span id="allocation-saved-carbon">0</span> C</p>
+            </div>
+             <!-- END NEW Summary -->
+
             <button id="submit-allocation">Allocate & Start New Day</button>
         </div>
+        <!-- End Allocation Section -->
 
     </div>
     <!-- End UI Overlay Panel -->

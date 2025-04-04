@@ -65,14 +65,14 @@ body, html {
 }
 
 
-.status-bar-container, /* Removed controls/info selectors here */
-#allocation-section p /* Target paragraphs in allocation section */
+.status-bar-container,
+#allocation-section p /* General paragraph spacing in allocation section */
 {
     margin-bottom: 8px;
 }
 
 /* Target divs inside controls/info sections for spacing */
-.controls-container > div, .info-container > div {
+.controls-section > div, .info-section > div { /* Updated selector */
      margin-bottom: 8px;
 }
 
@@ -143,23 +143,75 @@ input[type="range"] {
 .timer-display {
     font-weight: bold;
     color: #ffcc00; /* Yellow color */
-    margin-bottom: 10px; /* Space below timer */
+    margin-bottom: 15px; /* More space below timer */
     text-align: center;
     font-size: 1.1em;
 }
 
-/* Legacy Allocation Controls Styling */
-.allocation-control {
+/* NEW Styling for Allocation Inputs */
+.allocation-input-group {
+    margin-bottom: 15px; /* Space below inputs */
+    border-bottom: 1px solid #555; /* Separator line */
+    padding-bottom: 10px;
+}
+
+.allocation-input-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-top: 10px;
+    justify-content: space-between; /* Pushes label and input apart */
+    margin-bottom: 8px;
 }
+
+.allocation-input-row label {
+    flex-grow: 1; /* Allow label to take space */
+    margin-right: 10px;
+    font-size: 0.9em;
+}
+
+.allocation-input-row input[type="number"] {
+    width: 70px; /* Fixed width for number inputs */
+    padding: 4px;
+    background-color: #555;
+    color: #eee;
+    border: 1px solid #777;
+    border-radius: 3px;
+    text-align: right;
+    /* Override browser default spinners if desired */
+    -moz-appearance: textfield; /* Firefox */
+}
+.allocation-input-row input[type="number"]::-webkit-outer-spin-button,
+.allocation-input-row input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none; /* Chrome, Safari, Edge, Opera */
+    margin: 0;
+}
+
+.allocation-info { /* Styling for seed cost info */
+    font-size: 0.8em;
+    text-align: right;
+    color: #aaa;
+    margin-top: 0px; /* Reduced margin */
+}
+
+/* NEW Styling for Allocation Summary */
+.allocation-summary {
+    margin-bottom: 15px;
+    border-bottom: 1px solid #555; /* Separator line */
+    padding-bottom: 10px;
+}
+.allocation-summary p {
+    margin: 4px 0;
+    font-size: 0.9em;
+}
+.allocation-summary p span { /* Highlight the numbers */
+    font-weight: bold;
+    color: #eee; /* Or maybe a different color like cyan? */
+}
+
 
 /* Allocation Button Styling */
 #allocation-section button {
      padding: 10px 20px;
-    margin-top: 15px;
+    margin-top: 10px; /* Reduced top margin */
     cursor: pointer;
     background-color: #555;
     border: none;
