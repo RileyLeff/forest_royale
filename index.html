@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Island Canopy Sim</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas> <!-- Use specific canvas ID -->
+    </div>
+
+    <div id="ui-overlay">
+        <!-- Status Bars -->
+        <div class="status-bar-container">
+            <label for="carbon-bar">Carbon Storage:</label>
+            <div class="bar-outer">
+                <div id="carbon-bar" class="bar-inner carbon"></div>
+            </div>
+            <span id="carbon-value">100</span>
+        </div>
+        <div class="status-bar-container">
+            <label for="hydraulic-bar">Hydraulic Safety:</label>
+            <div class="bar-outer">
+                <div id="hydraulic-bar" class="bar-inner hydraulic"></div>
+            </div>
+             <span id="hydraulic-value">100</span>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls-container">
+             <label for="stomata-slider">Stomata Openness:</label>
+             <input type="range" id="stomata-slider" min="0" max="1" step="0.05" value="0.5">
+             <span id="stomata-value">50%</span>
+        </div>
+
+        <!-- Info -->
+        <div class="info-container">
+            <div>Day: <span id="day-counter">0</span></div>
+            <div>Seeds: <span id="seed-counter">0</span></div>
+            <div>Time: <span id="time-of-day">Day</span> (<span id="cycle-timer">0</span>s)</div>
+            <div id="message-log" class="message"></div>
+        </div>
+
+        <!-- Night Allocation Modal -->
+        <div id="allocation-modal" class="modal hidden">
+            <h2>Night Allocation (Day <span id="allocation-day">0</span> End)</h2>
+            <p>Available Carbon: <span id="available-carbon">0</span></p>
+            <div class="allocation-control">
+                <label for="growth-slider">Allocate to Growth:</label>
+                <input type="range" id="growth-slider" min="0" max="100" step="1" value="50">
+                <span id="growth-percentage">50</span>%
+            </div>
+             <p>Seeds Cost: <span id="seed-cost-info">10</span> Carbon each</p>
+             <p>Result: <span id="allocation-growth-carbon">0</span> C for Growth, <span id="allocation-seed-carbon">0</span> C for <span id="allocation-seed-count">0</span> Seeds</p>
+            <button id="submit-allocation">Allocate & Start New Day</button>
+        </div>
+
+         <!-- Game Over Modal -->
+        <div id="game-over-modal" class="modal hidden">
+            <h2>Game Over!</h2>
+            <p id="game-over-reason"></p>
+            <p>You survived <span id="final-day">0</span> days and produced <span id="final-seeds">0</span> seeds.</p>
+            <button id="restart-button">Play Again</button>
+        </div>
+    </div>
+
+    <!-- Import Three.js (using a CDN for simplicity) -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
