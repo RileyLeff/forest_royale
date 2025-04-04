@@ -27,12 +27,12 @@ body, html {
     top: 10px;
     left: 10px;
     padding: 10px;
-    background-color: rgba(0, 0, 0, 0.5);
-    border-radius: 5px;
+    background-color: rgba(0, 0, 0, 0.6); /* Slightly darker */
+    border-radius: 8px; /* Rounded corners */
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    max-width: 300px; /* Limit width */
+    gap: 15px; /* Increased gap between sections */
+    max-width: 320px; /* Slightly wider */
     pointer-events: none; /* Allow clicks through overlay */
 }
 
@@ -40,12 +40,50 @@ body, html {
      pointer-events: auto; /* Enable interaction for children */
 }
 
-
-.status-bar-container, .controls-container, .info-container {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
+.ui-section {
+    border: 1px solid #444; /* Add subtle border to sections */
+    padding: 10px;
+    border-radius: 5px;
+    background-color: rgba(20, 20, 20, 0.3); /* Section background */
 }
+
+.ui-section h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 1.1em;
+    color: #ddd;
+    border-bottom: 1px solid #555;
+    padding-bottom: 5px;
+}
+
+
+.status-bar-container, .controls-container > div, .info-container > div {
+    /* Removed flex direction from here, applied within sections */
+    margin-bottom: 8px; /* Spacing for items */
+}
+
+/* ++ NEW Styling for Color Pickers ++ */
+.color-picker-container {
+    display: flex;
+    align-items: center;
+    gap: 10px; /* Space between label and picker */
+    margin-top: 5px;
+}
+
+.color-picker-container label {
+     flex-basis: 80px; /* Align labels */
+     flex-shrink: 0;
+}
+
+.color-picker-container input[type="color"] {
+    width: 40px; /* Make picker smaller */
+    height: 25px;
+    border: 1px solid #555;
+    cursor: pointer;
+    padding: 0; /* Remove default padding */
+}
+/* ++ END NEW Styling ++ */
+
 
 .bar-outer {
     background-color: #555;
@@ -53,6 +91,7 @@ body, html {
     height: 15px;
     width: 100%; /* Full width within container */
     overflow: hidden; /* Ensure inner bar stays inside */
+    margin-top: 3px; /* Space from label */
 }
 
 .bar-inner {
@@ -69,7 +108,15 @@ label {
 }
 
 input[type="range"] {
-    width: 100%;
+    width: calc(100% - 50px); /* Adjust range slider width */
+    vertical-align: middle; /* Align with value text */
+}
+
+#stomata-value {
+     display: inline-block;
+     width: 40px; /* Reserve space for % value */
+     text-align: right;
+     vertical-align: middle;
 }
 
 .message {
@@ -77,8 +124,10 @@ input[type="range"] {
     font-weight: bold;
     min-height: 1.2em; /* Prevent layout shift */
 }
+.message.warning { color: #ff9800; } /* Orange for warnings */
+.message.error { color: #f44336; } /* Red for errors */
 
-/* Modal Styling */
+/* Modal Styling (Keep for now, will be refactored) */
 .modal {
     position: fixed;
     top: 50%;
@@ -123,6 +172,6 @@ input[type="range"] {
 }
 
 /* Make sliders interactive again */
-input[type="range"] {
+input[type="range"], input[type="color"] { /* Include color picker */
      pointer-events: auto;
 }
