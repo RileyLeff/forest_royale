@@ -7,7 +7,7 @@ import { showMessage, showAllocationSection, showGameOverUI, clearMessage } from
 import { updateCanopyVisuals, setCanopyVisibility } from './tree.js';
 import { sunLight } from './sceneSetup.js'; // Need to control light
 
-// --- NEW: Exported function to handle starting a new day ---
+// --- Exported function to handle starting a new day ---
 export function startNewDay() {
     console.log("SIM: startNewDay called."); // Log start
     if (gameState.gameOver) {
@@ -108,11 +108,11 @@ export function updateSimulation(deltaTime) {
 
         // --- Check Game Over Conditions ---
         if (gameState.carbonStorage <= 0) {
-            triggerGameOver("Starvation! Ran out of carbon.");
+            triggerGameOver("Starvation! Ran out of carbon."); // Call with reason
             return; // Stop further simulation this frame
         }
         if (gameState.hydraulicSafety <= 0) {
-            triggerGameOver("Desiccation! Hydraulic system failed.");
+            triggerGameOver("Desiccation! Hydraulic system failed."); // Call with reason
             return; // Stop further simulation this frame
         }
     }
@@ -122,11 +122,28 @@ export function updateSimulation(deltaTime) {
 
 // Function to set the game over state and trigger UI/visual updates
 function triggerGameOver(reason) {
-    if (gameState.gameOver) return; // Prevent multiple triggers
-    console.log("Game Over:", reason);
+    if (gameState.gameOver) {
+        console.log("SIM: triggerGameOver called but game already over."); // Log if already over
+        return;
+    }
+    // ++ Added Log ++
+    console.log(`SIM: triggerGameOver called with reason: "${reason}"`); // Log reason received
+
     gameState.gameOver = true;
-    gameState.gameOverReason = reason;
-    gameState.isPaused = true; // Pause simulation
-    setCanopyVisibility(gameState, false); // Hide canopy
-    showGameOverUI(); // Show game over screen
+    gameState.gameOverReason = reason; // Store the reason
+    gameState.isPaused = true;
+    // ++ Added Log ++
+    console.log(`SIM: gameState updated - gameOver: ${gameState.gameOver}, reason: "${gameState.gameOverReason}", isPaused: ${gameState.isPaused}`); // Log state update
+
+    // Trigger visual changes for game over
+    setCanopyVisibility(gameState, false);
+    // ++ Added Log ++
+    console.log("SIM: Canopy visibility set to false."); // Log visual trigger
+
+    // Trigger the UI display for game over
+    // ++ Added Log ++
+    console.log("SIM: Calling showGameOverUI()..."); // Log before calling UI
+    showGameOverUI();
+    // ++ Added Log ++
+    console.log("SIM: Finished triggerGameOver."); // Log end
 }
