@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import { gameState, initializeGameState } from './gameState.js';
 import * as Config from './config.js'; // Might be needed for direct checks? Usually not.
+// ++ CORRECTED Import: Only import scene once ++
 import { initScene, renderer, camera, controls, scene } from './sceneSetup.js';
 // Import necessary tree functions for initialization and restart
 import { createPlayerTree, calculateDimensions, disposeTreeMaterials } from './tree.js';
 // Import necessary UI functions
 import { cacheDOMElements, setupUIListeners, updateUI, clearMessage, hideAllocationSection } from './ui.js';
 import { updateSimulation } from './simulation.js';
-// Import scene explicitly for cleanup in restart
-import { scene } from './sceneSetup.js';
+// ++ REMOVED Duplicate import of scene here ++
 
 // --- Global Variables ---
 let clock = new THREE.Clock();
@@ -112,13 +112,14 @@ function startGameLoop() {
 export function handleRestart() {
     console.log("Handling Restart Request...");
 
+    // ++ REMOVED import { scene } from './sceneSetup.js'; from here ++
+
     // Stop potentially running timers etc. (e.g., allocation timer)
-    // hideAllocationSection takes care of the allocation timer and unpausing
     hideAllocationSection();
 
     // Clean up old Three.js resources
     if (gameState.treeMeshGroup) {
-         // Check if scene exists before removing from it
+         // Check if scene exists before removing from it (scene is available from top-level import)
          if(scene) {
              scene.remove(gameState.treeMeshGroup);
          } else {
@@ -130,7 +131,6 @@ export function handleRestart() {
         // If no tree group exists, still ensure materials are cleared
         disposeTreeMaterials();
     }
-
 
     // Reset game state logic using the function from gameState.js
     initializeGameState();
@@ -154,8 +154,6 @@ export function handleRestart() {
     clearMessage(); // Clear any game over message
 
     // Ensure simulation is unpaused and game over is false (handled by initializeGameState)
-    // gameState.isPaused = false; // Redundant if initializeGameState sets it
-    // gameState.gameOver = false; // Redundant
 
     // Ensure the loop is running (it should be, but doesn't hurt to ensure)
     startGameLoop();
