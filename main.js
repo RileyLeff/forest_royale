@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // --- DOM Elements ---
+// (No changes needed here)
 const gameContainer = document.getElementById('game-container');
 const canvas = document.getElementById('game-canvas');
 const carbonBar = document.getElementById('carbon-bar');
@@ -30,13 +31,12 @@ const gameOverReasonUI = document.getElementById('game-over-reason');
 const finalDayUI = document.getElementById('final-day');
 const finalSeedsUI = document.getElementById('final-seeds');
 const restartButton = document.getElementById('restart-button');
-// ++ NEW Color Picker Elements ++
 const leafColorPicker = document.getElementById('leaf-color-picker');
 const trunkColorPicker = document.getElementById('trunk-color-picker');
-// ++ END NEW Color Picker Elements ++
 
 // --- Game Constants ---
-const k_TA_LA_RATIO = 0.01; // Trunk cross-section area / Leaf Area ratio
+// (No changes needed here)
+const k_TA_LA_RATIO = 0.01;
 const INITIAL_LEAF_AREA = 5;
 const INITIAL_TRUNK_HEIGHT = 2;
 const MAX_CARBON = 200;
@@ -55,8 +55,8 @@ const NIGHT_DURATION_SECONDS = 8;
 const ISLAND_RADIUS = 50;
 const WATER_LEVEL = 0;
 const ISLAND_LEVEL = 0.1;
-const DEFAULT_LEAF_COLOR = '#228B22'; // Forest Green
-const DEFAULT_TRUNK_COLOR = '#8B4513'; // Saddle Brown
+const DEFAULT_LEAF_COLOR = '#228B22';
+const DEFAULT_TRUNK_COLOR = '#8B4513';
 
 // --- Game State ---
 let gameState = {};
@@ -64,17 +64,16 @@ let gameState = {};
 // --- Three.js Variables ---
 let scene, camera, renderer, controls, sunLight;
 let clock = new THREE.Clock();
-// Store materials globally for easier updates
 let trunkMaterial, canopyMaterial;
 
 // --- Initialization ---
-
+// (No changes needed in init, setupScene, initializeGameState, createEnvironment)
 function init() {
     setupScene();
-    initializeGameState(); // Sets up initial state including colors
+    initializeGameState();
     createEnvironment();
-    createPlayerTree(); // Creates tree using initial colors
-    setupUIListeners(); // Includes listeners for color pickers
+    createPlayerTree();
+    setupUIListeners();
     updateUI();
     gameLoop();
 }
@@ -144,17 +143,12 @@ function initializeGameState() {
         trunkDepth: 0,
         canopyWidth: 0,
         canopyDepth: 0,
-        // ++ NEW Color State ++
         leafColor: DEFAULT_LEAF_COLOR,
         trunkColor: DEFAULT_TRUNK_COLOR,
-        // ++ END NEW Color State ++
     };
     calculateDimensions(gameState);
-
-    // ++ NEW: Initialize color picker UI elements ++
     leafColorPicker.value = gameState.leafColor;
     trunkColorPicker.value = gameState.trunkColor;
-    // ++ END NEW ++
 }
 
 function createEnvironment() {
@@ -182,7 +176,9 @@ function createEnvironment() {
     scene.add(waterMesh);
 }
 
+
 // --- Tree Creation & Growth ---
+// (No changes needed in calculateDimensions, createPlayerTree, growTree)
 
 function calculateDimensions(state) {
     state.canopyWidth = Math.sqrt(state.currentLA);
@@ -195,16 +191,13 @@ function calculateDimensions(state) {
 function createPlayerTree() {
     if (gameState.treeMeshGroup) {
         scene.remove(gameState.treeMeshGroup);
-        // Dispose old materials if they exist
         if (trunkMaterial) trunkMaterial.dispose();
         if (canopyMaterial) canopyMaterial.dispose();
     }
 
     const trunkGeometry = new THREE.BoxGeometry(gameState.trunkWidth, gameState.trunkHeight, gameState.trunkDepth);
-    // ++ Use gameState color and store material reference ++
     trunkMaterial = new THREE.MeshStandardMaterial({ color: gameState.trunkColor });
     const trunkMesh = new THREE.Mesh(trunkGeometry, trunkMaterial);
-    // ++ END Change ++
     trunkMesh.name = "trunk";
     trunkMesh.position.y = gameState.trunkHeight / 2 + ISLAND_LEVEL;
     trunkMesh.castShadow = true;
@@ -212,11 +205,8 @@ function createPlayerTree() {
 
     const canopyThickness = 0.1;
     const canopyGeometry = new THREE.BoxGeometry(gameState.canopyWidth, canopyThickness, gameState.canopyDepth);
-    // ++ Use gameState color and store material reference ++
-    // Start with default green, allow damage tinting
     canopyMaterial = new THREE.MeshStandardMaterial({ color: gameState.leafColor });
     const canopyMesh = new THREE.Mesh(canopyGeometry, canopyMaterial);
-    // ++ END Change ++
     canopyMesh.name = "canopy";
     canopyMesh.position.y = gameState.trunkHeight + canopyThickness / 2 + ISLAND_LEVEL;
     canopyMesh.castShadow = true;
@@ -231,7 +221,6 @@ function createPlayerTree() {
     controls.target.copy(gameState.treeMeshGroup.position);
     controls.target.y = gameState.trunkHeight / 2;
 
-    // Apply damage tint immediately if restarting with damage
     updateCanopyVisuals();
 }
 
@@ -271,6 +260,7 @@ function growTree(carbonForGrowth) {
 
 
 // --- Simulation Logic ---
+// (No changes needed in updateSimulation, updateCanopyVisuals)
 
 function updateSimulation(deltaTime) {
     if (gameState.isPaused || gameState.gameOver) return;
@@ -293,10 +283,8 @@ function updateSimulation(deltaTime) {
             sunLight.position.set(30, 50, 20);
             showMessage(`Day ${gameState.day} starting.`);
         }
-         // Ensure timer display resets correctly at cycle change
          cycleTimerUI.textContent = Math.floor(cycleDuration);
     } else {
-         // Update timer display during the cycle
          cycleTimerUI.textContent = Math.floor(cycleDuration - gameState.timeInCycle);
     }
 
@@ -323,15 +311,12 @@ function updateSimulation(deltaTime) {
             const damageRate = CROWN_DIEBACK_RATE * deltaTime;
             gameState.damagedLAPercentage = Math.min(1, gameState.damagedLAPercentage + damageRate);
             gameState.effectiveLA = gameState.currentLA * (1 - gameState.damagedLAPercentage);
-            updateCanopyVisuals(); // Update color tint
+            updateCanopyVisuals();
              showMessage(`Hydraulic stress! Canopy damage! Safety: ${gameState.hydraulicSafety.toFixed(0)}`, 'warning');
         } else {
-            // If safety recovers above threshold, maybe slowly repair damage? (Optional future feature)
-            // For now, just clear the warning if applicable
             if (messageLogUI.textContent.includes('Hydraulic stress')) {
                 clearMessage();
             }
-            // Ensure canopy color returns to normal if damage is 0 (or repaired)
             if(gameState.damagedLAPercentage === 0 && canopyMaterial && canopyMaterial.color.getHexString() !== gameState.leafColor.substring(1)) {
                  updateCanopyVisuals();
             }
@@ -346,18 +331,20 @@ function updateSimulation(deltaTime) {
 }
 
 function updateCanopyVisuals() {
-    // Uses the globally stored canopyMaterial reference
     if (!canopyMaterial || !gameState.treeMeshGroup) return;
 
-    const baseColor = new THREE.Color(gameState.leafColor); // Use the player's chosen leaf color
-    const brown = new THREE.Color(0x8B4513); // Damage color
+    const baseColor = new THREE.Color(gameState.leafColor);
+    const brown = new THREE.Color(0x8B4513);
 
-    // Interpolate color from base leaf color to brown based on damage
-    canopyMaterial.color.lerpColors(baseColor, brown, gameState.damagedLAPercentage);
+    // Only apply tint if canopy is supposed to be visible (not game over)
+    if (!gameState.gameOver || !gameState.treeMeshGroup.getObjectByName("canopy")?.visible === false) {
+         canopyMaterial.color.lerpColors(baseColor, brown, gameState.damagedLAPercentage);
+    }
 }
 
 
 // --- UI & Event Handling ---
+// (No changes needed in setupUIListeners, updateUI, showMessage, clearMessage, startNightAllocation, updateAllocationPreview, submitAllocation)
 
 function setupUIListeners() {
     stomataSlider.addEventListener('input', (e) => {
@@ -365,28 +352,23 @@ function setupUIListeners() {
         stomataValueUI.textContent = `${Math.round(gameState.stomatalConductance * 100)}%`;
     });
 
-    growthSlider.addEventListener('input', updateAllocationPreview); // Keep for modal for now
+    growthSlider.addEventListener('input', updateAllocationPreview);
     submitAllocationButton.addEventListener('click', submitAllocation);
     restartButton.addEventListener('click', restartGame);
 
-    // ++ NEW Color Picker Listeners ++
     leafColorPicker.addEventListener('input', (e) => {
         gameState.leafColor = e.target.value;
-        // Update material color immediately if the material exists
         if (canopyMaterial) {
-            // canopyMaterial.color.set(gameState.leafColor); // Direct set bypasses damage tint
-            updateCanopyVisuals(); // Re-apply tint based on new base color
+            updateCanopyVisuals();
         }
     });
 
     trunkColorPicker.addEventListener('input', (e) => {
         gameState.trunkColor = e.target.value;
-        // Update material color immediately if the material exists
         if (trunkMaterial) {
             trunkMaterial.color.set(gameState.trunkColor);
         }
     });
-    // ++ END NEW Color Picker Listeners ++
 }
 
 function updateUI() {
@@ -401,7 +383,6 @@ function updateUI() {
     seedCounterUI.textContent = gameState.seedCount;
     timeOfDayUI.textContent = gameState.timeOfDay.charAt(0).toUpperCase() + gameState.timeOfDay.slice(1);
 
-    // Update color pickers in case state was reset (e.g., restart)
     leafColorPicker.value = gameState.leafColor;
     trunkColorPicker.value = gameState.trunkColor;
 }
@@ -416,7 +397,6 @@ function clearMessage() {
      messageLogUI.className = 'message';
 }
 
-
 function startNightAllocation() {
     if (gameState.gameOver) return;
 
@@ -425,7 +405,7 @@ function startNightAllocation() {
     availableCarbonUI.textContent = availableCarbon;
     allocationDayUI.textContent = gameState.day;
     growthSlider.max = availableCarbon;
-    growthSlider.value = Math.min(availableCarbon, Math.floor(availableCarbon / 2)); // Ensure value <= max
+    growthSlider.value = Math.min(availableCarbon, Math.floor(availableCarbon / 2));
     seedCostInfoUI.textContent = SEED_COST;
 
     updateAllocationPreview();
@@ -433,27 +413,20 @@ function startNightAllocation() {
 }
 
 function updateAllocationPreview() {
-    // This function targets the elements in the original modal
-    // It will be updated significantly in Step 5
     const available = Math.floor(gameState.carbonStorage);
     let growthAllocation = 0;
-     // Check if the element exists before accessing its value
      if(document.getElementById('growth-slider')){
         growthAllocation = parseInt(document.getElementById('growth-slider').value) || 0;
      } else {
-         console.warn("Growth slider not found during preview update."); // Add warning
-         growthAllocation = Math.floor(available / 2); // Fallback if element missing
+         console.warn("Growth slider not found during preview update.");
+         growthAllocation = Math.floor(available / 2);
      }
 
-
-     // Ensure growth allocation doesn't exceed available
      growthAllocation = Math.min(available, growthAllocation);
-     // Update slider value visually if constrained
      if(document.getElementById('growth-slider')) {
           document.getElementById('growth-slider').value = growthAllocation;
-          document.getElementById('growth-slider').max = available; // Update max too
+          document.getElementById('growth-slider').max = available;
      }
-
 
     const growthPercent = available > 0 ? Math.round((growthAllocation / available) * 100) : 0;
     const carbonForSeeds = available - growthAllocation;
@@ -461,7 +434,6 @@ function updateAllocationPreview() {
     const actualCarbonForSeeds = seedsToMake * SEED_COST;
     const actualCarbonForGrowth = available - actualCarbonForSeeds;
 
-    // Update UI text elements if they exist
     const growthPercentElem = document.getElementById('growth-percentage');
     const growthCarbonElem = document.getElementById('allocation-growth-carbon');
     const seedCarbonElem = document.getElementById('allocation-seed-carbon');
@@ -472,7 +444,6 @@ function updateAllocationPreview() {
     if(seedCarbonElem) seedCarbonElem.textContent = actualCarbonForSeeds;
     if(seedCountElem) seedCountElem.textContent = seedsToMake;
 
-    // Re-adjust slider if seed granularity changed growth amount
      if(document.getElementById('growth-slider')) {
         document.getElementById('growth-slider').value = actualCarbonForGrowth;
      }
@@ -480,26 +451,23 @@ function updateAllocationPreview() {
 
 
 function submitAllocation() {
-    // Also targets modal elements, will be updated later
     const available = Math.floor(gameState.carbonStorage);
      let growthAllocation = 0;
      if(document.getElementById('growth-slider')){
          growthAllocation = parseInt(document.getElementById('growth-slider').value) || 0;
      } else {
          console.error("Growth slider not found on submit!");
-         // Handle error gracefully - maybe default allocation? Or skip allocation?
-         allocationModal.classList.add('hidden'); // Hide modal anyway
+         allocationModal.classList.add('hidden');
          gameState.isPaused = false;
          updateUI();
-         return; // Exit if slider missing
+         return;
      }
 
-    // Re-validate and calculate based on slider value
     growthAllocation = Math.min(available, growthAllocation);
     const carbonForSeeds = available - growthAllocation;
     const seedsToMake = carbonForSeeds >= 0 ? Math.floor(carbonForSeeds / SEED_COST) : 0;
     const actualCarbonForSeeds = seedsToMake * SEED_COST;
-    const actualCarbonForGrowth = available - actualCarbonForSeeds; // Growth gets remainder
+    const actualCarbonForGrowth = available - actualCarbonForSeeds;
 
     gameState.carbonStorage -= (actualCarbonForGrowth + actualCarbonForSeeds);
     gameState.seedCount += seedsToMake;
@@ -513,42 +481,55 @@ function submitAllocation() {
     updateUI();
 }
 
+// --- Game Over & Restart ---
+
 function triggerGameOver(reason) {
-    if (gameState.gameOver) return;
+    if (gameState.gameOver) return; // Prevent multiple triggers
 
     gameState.gameOver = true;
-    gameState.isPaused = true;
+    gameState.isPaused = true; // Ensure simulation stops
 
     gameOverReasonUI.textContent = reason;
     finalDayUI.textContent = gameState.day;
     finalSeedsUI.textContent = gameState.seedCount;
 
-    gameOverModal.classList.remove('hidden');
+    // ++ NEW: Hide the canopy mesh ++
+    if (gameState.treeMeshGroup) {
+        const canopyMesh = gameState.treeMeshGroup.getObjectByName("canopy");
+        if (canopyMesh) {
+            canopyMesh.visible = false; // Make canopy invisible
+        }
+    }
+    // ++ END NEW ++
 
-     // Note: Tree canopy disappearance will be handled in Step 2 implementation
+    gameOverModal.classList.remove('hidden'); // Show the game over message box
 }
 
 function restartGame() {
     gameOverModal.classList.add('hidden');
     clearMessage();
 
-    // Ensure canopy is visible on restart if it was hidden on game over
-    if(gameState.treeMeshGroup) {
-        const canopyMesh = gameState.treeMeshGroup.getObjectByName("canopy");
-        if (canopyMesh) canopyMesh.visible = true; // Make sure it's visible again
+    // Ensure canopy mesh is potentially re-added or made visible
+    // The easiest way is just to recreate the tree entirely during initialize
+    // (which we already do). We just need to ensure the old one is gone.
+    if (gameState.treeMeshGroup) {
+         scene.remove(gameState.treeMeshGroup);
+         if (trunkMaterial) trunkMaterial.dispose();
+         if (canopyMaterial) canopyMaterial.dispose();
+         trunkMaterial = null; // Clear references
+         canopyMaterial = null;
+         gameState.treeMeshGroup = null;
     }
 
 
-    initializeGameState();
-    createPlayerTree();
-    // setupUIListeners(); // Listeners should persist unless dynamically removed
-    updateUI();
+    initializeGameState(); // Resets state, including gameOver flag
+    createPlayerTree();    // Creates a new tree with visible canopy
+    updateUI();            // Resets UI elements
 
     controls.target.set(0, gameState.trunkHeight / 2, 0);
 
-    gameState.gameOver = false;
-    gameState.isPaused = false;
-    if (!animationFrameId) {
+    gameState.isPaused = false; // Ensure simulation can run
+    if (!animationFrameId) { // Should not be needed if loop isn't stopped
         gameLoop();
     }
 }
@@ -560,11 +541,16 @@ function gameLoop() {
 
     const deltaTime = clock.getDelta();
 
+    // Check specifically if the game is NOT over before updating
     if (!gameState.gameOver) {
-      updateSimulation(deltaTime);
-      updateUI();
-      controls.update();
+      updateSimulation(deltaTime); // Includes check for isPaused internally
+      updateUI();                // Update UI unless game is over
+      controls.update();         // Allow camera movement even if paused, but maybe not if game over?
+    } else {
+        // Optionally keep updating controls even on game over screen
+         controls.update();
     }
+
 
     renderer.render(scene, camera);
 }
