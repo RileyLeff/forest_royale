@@ -1,7 +1,7 @@
 body, html {
     margin: 0;
     padding: 0;
-    overflow: hidden; /* Prevent scrollbars */
+    overflow: hidden;
     font-family: sans-serif;
     background-color: #333;
     color: #eee;
@@ -16,7 +16,7 @@ body, html {
 }
 
 #game-canvas {
-    display: block; /* Remove potential extra space below canvas */
+    display: block;
     width: 100%;
     height: 100%;
 }
@@ -27,24 +27,26 @@ body, html {
     top: 10px;
     left: 10px;
     padding: 10px;
-    background-color: rgba(0, 0, 0, 0.6); /* Slightly darker */
-    border-radius: 8px; /* Rounded corners */
+    background-color: rgba(0, 0, 0, 0.7); /* Slightly darker overall */
+    border-radius: 8px;
     display: flex;
     flex-direction: column;
-    gap: 15px; /* Increased gap between sections */
-    max-width: 320px; /* Slightly wider */
-    pointer-events: none; /* Allow clicks through overlay */
+    gap: 10px; /* Consistent gap between sections */
+    max-width: 320px;
+    max-height: calc(100vh - 20px); /* Prevent overflow */
+    overflow-y: auto; /* Allow scrolling if content exceeds height */
+    pointer-events: none;
 }
 
 #ui-overlay > * {
-     pointer-events: auto; /* Enable interaction for children */
+     pointer-events: auto;
 }
 
 .ui-section {
-    border: 1px solid #444; /* Add subtle border to sections */
+    border: 1px solid #444;
     padding: 10px;
     border-radius: 5px;
-    background-color: rgba(20, 20, 20, 0.3); /* Section background */
+    background-color: rgba(30, 30, 30, 0.5); /* Slightly transparent section background */
 }
 
 .ui-section h3 {
@@ -56,78 +58,109 @@ body, html {
     padding-bottom: 5px;
 }
 
-
-.status-bar-container, .controls-container > div, .info-container > div {
-    /* Removed flex direction from here, applied within sections */
-    margin-bottom: 8px; /* Spacing for items */
+/* Make sections interactive */
+.ui-section {
+    pointer-events: auto;
 }
 
-/* ++ NEW Styling for Color Pickers ++ */
+/* *** NEW: Style for hidden sections *** */
+.hidden {
+    display: none;
+}
+/* *** END NEW *** */
+
+
+.status-bar-container, .controls-container > div, .info-container > div {
+    margin-bottom: 8px;
+}
+
 .color-picker-container {
     display: flex;
     align-items: center;
-    gap: 10px; /* Space between label and picker */
+    gap: 10px;
     margin-top: 5px;
 }
 
 .color-picker-container label {
-     flex-basis: 80px; /* Align labels */
+     flex-basis: 80px;
      flex-shrink: 0;
 }
 
 .color-picker-container input[type="color"] {
-    width: 40px; /* Make picker smaller */
+    width: 40px;
     height: 25px;
     border: 1px solid #555;
     cursor: pointer;
-    padding: 0; /* Remove default padding */
+    padding: 0;
 }
-/* ++ END NEW Styling ++ */
-
 
 .bar-outer {
     background-color: #555;
     border-radius: 3px;
     height: 15px;
-    width: 100%; /* Full width within container */
-    overflow: hidden; /* Ensure inner bar stays inside */
-    margin-top: 3px; /* Space from label */
+    width: 100%;
+    overflow: hidden;
+    margin-top: 3px;
 }
 
 .bar-inner {
     height: 100%;
     border-radius: 3px;
-    transition: width 0.2s ease-in-out; /* Smooth transition */
+    transition: width 0.2s ease-in-out;
 }
 
-.carbon { background-color: #4CAF50; } /* Green */
-.hydraulic { background-color: #2196F3; } /* Blue */
+.carbon { background-color: #4CAF50; }
+.hydraulic { background-color: #2196F3; }
 
 label {
     font-size: 0.9em;
 }
 
 input[type="range"] {
-    width: calc(100% - 50px); /* Adjust range slider width */
-    vertical-align: middle; /* Align with value text */
+    width: calc(100% - 50px);
+    vertical-align: middle;
 }
 
 #stomata-value {
      display: inline-block;
-     width: 40px; /* Reserve space for % value */
+     width: 40px;
      text-align: right;
      vertical-align: middle;
 }
 
 .message {
-    color: #ffcc00; /* Yellow for messages */
+    color: #ffcc00;
     font-weight: bold;
-    min-height: 1.2em; /* Prevent layout shift */
+    min-height: 1.2em;
 }
-.message.warning { color: #ff9800; } /* Orange for warnings */
-.message.error { color: #f44336; } /* Red for errors */
+.message.warning { color: #ff9800; }
+.message.error { color: #f44336; }
 
-/* Modal Styling (Keep for now, will be refactored) */
+/* Allocation Controls (Keep specific styling for now) */
+.allocation-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+#allocation-section button { /* Style button within the section */
+     padding: 10px 20px;
+    margin-top: 15px;
+    cursor: pointer;
+    background-color: #555;
+    border: none;
+    color: #eee;
+    border-radius: 5px;
+    display: block; /* Make button block level */
+    width: 100%; /* Full width */
+}
+#allocation-section button:hover {
+    background-color: #777;
+}
+
+
+/* Game Over Modal Styling (Keep separate) */
 .modal {
     position: fixed;
     top: 50%;
@@ -140,7 +173,7 @@ input[type="range"] {
     z-index: 100;
     min-width: 300px;
     text-align: center;
-    pointer-events: auto; /* Modals should be interactive */
+    pointer-events: auto;
 }
 
 .modal.hidden {
@@ -164,14 +197,7 @@ input[type="range"] {
     background-color: #777;
 }
 
-.allocation-control {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 10px;
-}
-
-/* Make sliders interactive again */
-input[type="range"], input[type="color"] { /* Include color picker */
+/* Ensure necessary inputs are interactive */
+input[type="range"], input[type="color"], input[type="number"], button {
      pointer-events: auto;
 }

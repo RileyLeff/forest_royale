@@ -11,8 +11,10 @@
         <canvas id="game-canvas"></canvas>
     </div>
 
+    <!-- *** Single UI Overlay Panel *** -->
     <div id="ui-overlay">
-        <!-- Status Bars -->
+
+        <!-- Status Section -->
         <div class="ui-section">
             <h3>Status</h3>
             <div class="status-bar-container">
@@ -31,7 +33,7 @@
             </div>
         </div>
 
-        <!-- Controls -->
+        <!-- Controls Section -->
         <div class="ui-section">
              <h3>Controls</h3>
              <div>
@@ -39,7 +41,6 @@
                 <input type="range" id="stomata-slider" min="0" max="1" step="0.05" value="0.5">
                 <span id="stomata-value">50%</span>
              </div>
-             <!-- ++ NEW Color Pickers ++ -->
              <div class="color-picker-container">
                 <label for="leaf-color-picker">Leaf Color:</label>
                 <input type="color" id="leaf-color-picker" value="#228B22">
@@ -48,10 +49,9 @@
                 <label for="trunk-color-picker">Trunk Color:</label>
                 <input type="color" id="trunk-color-picker" value="#8B4513">
              </div>
-             <!-- ++ END NEW Color Pickers ++ -->
         </div>
 
-        <!-- Info -->
+        <!-- Info Section -->
         <div class="ui-section">
             <h3>Info</h3>
             <div>Day: <span id="day-counter">0</span></div>
@@ -60,27 +60,35 @@
             <div id="message-log" class="message"></div>
         </div>
 
-        <!-- Night Allocation Modal (Will be integrated later) -->
-        <div id="allocation-modal" class="modal hidden">
-            <h2>Night Allocation (Day <span id="allocation-day">0</span> End)</h2>
+        <!-- *** Night Allocation Section (Moved inside overlay, hidden by default) *** -->
+        <div id="allocation-section" class="ui-section hidden">
+            <h3>Night Allocation (Day <span id="allocation-day">0</span> End)</h3>
             <p>Available Carbon: <span id="available-carbon">0</span></p>
-            <div class="allocation-control">
-                <label for="growth-slider">Allocate to Growth:</label>
-                <input type="range" id="growth-slider" min="0" max="100" step="1" value="50">
-                <span id="growth-percentage">50</span>%
+            <!-- Existing allocation controls will be replaced in Step 5 -->
+            <div id="legacy-allocation-controls">
+                <div class="allocation-control">
+                    <label for="growth-slider">Allocate to Growth:</label>
+                    <input type="range" id="growth-slider" min="0" max="100" step="1" value="50">
+                    <span id="growth-percentage">50</span>%
+                </div>
+                <p>Seeds Cost: <span id="seed-cost-info">10</span> Carbon each</p>
+                <p>Result: <span id="allocation-growth-carbon">0</span> C Growth, <span id="allocation-seed-carbon">0</span> C for <span id="allocation-seed-count">0</span> Seeds</p>
             </div>
-             <p>Seeds Cost: <span id="seed-cost-info">10</span> Carbon each</p>
-             <p>Result: <span id="allocation-growth-carbon">0</span> C for Growth, <span id="allocation-seed-carbon">0</span> C for <span id="allocation-seed-count">0</span> Seeds</p>
+            <!-- Timer will be added in Step 4 -->
             <button id="submit-allocation">Allocate & Start New Day</button>
         </div>
+        <!-- *** End Allocation Section *** -->
 
-         <!-- Game Over Modal -->
-        <div id="game-over-modal" class="modal hidden">
-            <h2>Game Over!</h2>
-            <p id="game-over-reason"></p>
-            <p>You survived <span id="final-day">0</span> days and produced <span id="final-seeds">0</span> seeds.</p>
-            <button id="restart-button">Play Again</button>
-        </div>
+    </div>
+    <!-- *** End UI Overlay Panel *** -->
+
+
+    <!-- Game Over Modal (Keep separate for now, as it overlays everything) -->
+    <div id="game-over-modal" class="modal hidden">
+        <h2>Game Over!</h2>
+        <p id="game-over-reason"></p>
+        <p>You survived <span id="final-day">0</span> days and produced <span id="final-seeds">0</span> seeds.</p>
+        <button id="restart-button">Play Again</button>
     </div>
 
     <!-- Import Three.js -->
