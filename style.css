@@ -1,10 +1,11 @@
+/* === Global & Base Styles === */
 body, html {
     margin: 0;
     padding: 0;
-    overflow: hidden;
+    overflow: hidden; /* Prevent scrollbars on the page */
     font-family: sans-serif;
-    background-color: #333;
-    color: #eee;
+    background-color: #333; /* Fallback background */
+    color: #eee;       /* Default text color */
 }
 
 #game-container {
@@ -13,6 +14,7 @@ body, html {
     left: 0;
     width: 100%;
     height: 100%;
+    z-index: 0; /* Ensure canvas is behind UI panels */
 }
 
 #game-canvas {
@@ -21,279 +23,209 @@ body, html {
     height: 100%;
 }
 
-
-#ui-overlay {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    padding: 10px;
-    background-color: rgba(0, 0, 0, 0.7);
-    border-radius: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    max-width: 320px;
-    max-height: calc(100vh - 20px);
-    overflow-y: auto;
-    pointer-events: none;
-}
-
-#ui-overlay > * {
-     pointer-events: auto;
-}
-
-.ui-section {
+/* === General UI Panel Styling === */
+.ui-panel {
+    position: absolute; /* Position panels absolutely relative to body/viewport */
+    background-color: rgba(0, 0, 0, 0.65); /* Slightly darker background for panels */
     border: 1px solid #444;
+    border-radius: 6px;
     padding: 10px;
-    border-radius: 5px;
-    background-color: rgba(30, 30, 30, 0.5);
-    pointer-events: auto;
+    box-sizing: border-box; /* Include padding and border in element's total width and height */
+    color: #eee;
+    z-index: 10; /* Ensure panels are above the canvas */
+    pointer-events: auto; /* Allow interaction with panels */
 }
 
-.ui-section h3 {
+.ui-panel h3, .ui-panel h4 { /* General headings for panels */
     margin-top: 0;
     margin-bottom: 10px;
-    font-size: 1.1em;
+    font-size: 1.0em; /* Slightly smaller headings */
     color: #ddd;
     border-bottom: 1px solid #555;
     padding-bottom: 5px;
 }
 
-.hidden {
-    display: none;
+.ui-panel p, .ui-panel div, .ui-panel label, .ui-panel span {
+    font-size: 0.9em; /* Consistent font size within panels */
 }
 
+/* === Specific Panel Positioning === */
 
-.status-bar-container,
-#allocation-section p
-{
-    margin-bottom: 8px;
+/* --- Top Left Info Panel --- */
+#top-left-info {
+    top: 10px;
+    left: 10px;
+    min-width: 180px; /* Ensure some minimum width */
 }
-
-.controls-section > div, .info-section > div {
-     margin-bottom: 8px;
+#top-left-info p {
+    margin: 4px 0; /* Tighter spacing */
 }
-
-
-.color-picker-container {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 5px;
+#top-left-info span {
+    font-weight: bold;
+    color: #ffc107; /* Amber highlight for values */
 }
-
-.color-picker-container label {
-     flex-basis: 80px;
-     flex-shrink: 0;
+.message { /* Message Log styling */
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed #555;
+    color: #ffcc00;
+    font-weight: bold;
+    min-height: 1.2em;
+    font-size: 0.85em; /* Smaller message text */
 }
+.message.warning { color: #ff9800; }
+.message.error { color: #f44336; }
 
-.color-picker-container input[type="color"] {
-    width: 40px;
-    height: 25px;
-    border: 1px solid #555;
-    cursor: pointer;
+
+/* --- Top Right Leaderboard --- */
+#top-right-leaderboard {
+    top: 10px;
+    right: 10px;
+    min-width: 200px;
+    max-width: 280px;
+    background-color: rgba(0, 0, 0, 0.5); /* More translucent */
+}
+#top-right-leaderboard h4 {
+    font-size: 0.9em;
+    text-align: center;
+    border: none; /* Remove border for header */
+    padding-bottom: 0;
+    margin-bottom: 5px;
+}
+#top-right-leaderboard ul {
+    list-style: none;
     padding: 0;
+    margin: 0;
+    font-size: 0.85em;
 }
+#top-right-leaderboard li {
+    padding: 3px 0;
+    border-bottom: 1px dotted #444;
+}
+#top-right-leaderboard li:last-child {
+    border-bottom: none;
+}
+/* Styles for expanded view, hover effects TBD */
 
+
+/* --- Bottom Left Status Panel --- */
+#bottom-left-status {
+    bottom: 10px;
+    left: 10px;
+    width: 220px; /* Fixed width might be better */
+}
+#bottom-left-status .status-bar-container {
+    margin-bottom: 10px;
+}
+#bottom-left-status label {
+    display: block; /* Label on its own line */
+    margin-bottom: 2px;
+    font-size: 0.85em;
+    color: #ccc;
+}
 .bar-outer {
     background-color: #555;
     border-radius: 3px;
     height: 15px;
     width: 100%;
     overflow: hidden;
-    margin-top: 3px;
 }
-
 .bar-inner {
     height: 100%;
     border-radius: 3px;
     transition: width 0.2s ease-in-out;
 }
-
 .carbon { background-color: #4CAF50; }
 .hydraulic { background-color: #2196F3; }
-
-label {
-    font-size: 0.9em;
+#bottom-left-status span#carbon-value,
+#bottom-left-status span#hydraulic-value {
+    float: right; /* Put value next to bar */
+    font-size: 0.8em;
+    line-height: 15px; /* Align vertically with bar */
+    margin-left: 5px;
+    color: #ccc;
 }
-
-/* General Slider Styling */
-input[type="range"] {
-    vertical-align: middle;
-    cursor: pointer;
-}
-
-
-#stomata-value { /* Specific styling for stomata % */
-     display: inline-block;
-     width: 40px;
-     text-align: right;
-     vertical-align: middle;
-}
-
-.message {
-    color: #ffcc00;
+#bottom-left-status p { /* Seed count display */
+    margin: 8px 0 0 0;
+    clear: both; /* Ensure it's below the floated values */
     font-weight: bold;
-    min-height: 1.2em;
 }
-.message.warning { color: #ff9800; }
-.message.error { color: #f44336; }
-
-/* Styling for Allocation Timer */
-.timer-display {
-    font-weight: bold;
-    color: #ffc107;
-    margin-bottom: 15px;
-    text-align: center;
-    font-size: 1.4em;
-    padding: 5px 0;
-    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-    /* animation: pulse 2s infinite ease-in-out; */
-}
-/* @keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.05); opacity: 0.9; } 100% { transform: scale(1); opacity: 1; } } */
-
-
-/* Styling for Allocation Sliders */
-.allocation-slider-group {
-    margin-bottom: 15px;
-    border-bottom: 1px solid #555;
-    padding-bottom: 10px;
+#bottom-left-status p span#seed-counter {
+     color: #ffc107; /* Highlight seed count */
 }
 
-.allocation-slider-row {
-    display: grid;
-    grid-template-columns: auto 1fr auto; /* Label | Slider | Percentage */
-    gap: 8px;
+
+/* --- Bottom Bar Controls Panel --- */
+#bottom-bar-controls {
+    bottom: 10px;
+    left: 240px; /* Position next to bottom-left panel */
+    right: 10px; /* Stretch towards the right */
+    /* Or use fixed width: width: 500px; left: 50%; transform: translateX(-50%); */
+    display: flex; /* Arrange controls horizontally */
+    justify-content: space-around; /* Distribute space */
     align-items: center;
-    margin-bottom: 10px;
+    padding: 8px 15px; /* Adjust padding */
+    gap: 20px; /* Space between control groups */
 }
-
-.allocation-slider-row label {
-    grid-column: 1 / 2;
-    justify-self: start;
+.control-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.control-row label {
     white-space: nowrap;
+    color: #ccc;
+    font-size: 0.85em;
 }
-
-.allocation-slider-row input[type="range"] {
-    grid-column: 2 / 3;
-    width: 100%;
+.control-row input[type="range"] {
+    width: 100px; /* Adjust slider width */
+    cursor: pointer;
+    vertical-align: middle;
 }
-
-.allocation-slider-row .slider-percentage {
-    grid-column: 3 / 4;
+.control-row span { /* Percentage displays */
     font-size: 0.85em;
     font-weight: bold;
     color: #ccc;
-    min-width: 75px;
+    min-width: 40px; /* Reserve space */
     text-align: right;
-    white-space: nowrap;
+}
+.control-row span#growth-ratio-percentage {
+     min-width: 75px; /* Needs more space */
 }
 
-.allocation-info {
-    font-size: 0.8em;
-    text-align: right;
-    color: #aaa;
-    margin-top: 5px;
-    margin-bottom: 0;
-}
-
-/* Allocation Summary Styling */
-.allocation-summary {
-    margin-bottom: 15px;
-    border-bottom: 1px solid #555;
-    padding-bottom: 10px;
-}
-.allocation-summary p {
-    margin: 4px 0;
-    font-size: 0.9em;
-}
-.allocation-summary p span {
-    font-weight: bold;
-    color: #eee;
-}
-
-/* Allocation Button Styling */
-#allocation-section button {
-     padding: 10px 20px;
-    margin-top: 10px;
-    cursor: pointer;
-    background-color: #555;
-    border: none;
-    color: #eee;
-    border-radius: 5px;
-    display: block;
-    width: 100%;
-}
-#allocation-section button:hover {
-    background-color: #777;
-}
-
-
-/* === Game Over Modal Styling === */
-.modal {
-    position: fixed; /* Position relative to the viewport */
-    top: 50%;         /* Center vertically */
-    left: 50%;        /* Center horizontally */
-    transform: translate(-50%, -50%); /* Precise centering adjustment */
-    background-color: rgba(40, 40, 40, 0.9); /* Dark semi-transparent background */
-    padding: 20px;    /* Internal spacing */
-    border: 1px solid #666; /* Subtle border */
-    border-radius: 10px; /* Rounded corners */
-    z-index: 100;     /* Ensure it's on top of other UI elements */
-    min-width: 300px; /* Minimum width */
-    text-align: center; /* Center text inside */
-    pointer-events: auto; /* Allow interaction with the modal */
-    color: #eee;       /* Default text color inside modal */
-}
-
-.modal.hidden {
-    display: none; /* This rule hides the modal when the 'hidden' class is present */
-}
-
-/* Styling for elements *inside* the modal */
-.modal h2 {
-    margin-top: 0; /* Remove default top margin from heading */
-    color: #eee;   /* Ensure heading color is visible */
-    margin-bottom: 15px; /* Space below heading */
-}
-
-/* Ensure paragraphs inside modal are visible */
-.modal p {
-     color: #eee; /* Explicitly set text color for paragraphs inside */
-     margin: 10px 0; /* Add some spacing around paragraphs */
-     line-height: 1.4; /* Improve readability */
-}
-
-/* Style the spans inside the second paragraph (Day/Seed counts) */
-.modal p span {
-    font-weight: bold; /* Make day/seed counts bold */
-    color: #ffc107; /* Optional: Highlight numbers in amber */
-}
-
-/* Explicitly style the reason paragraph if needed */
-#game-over-reason {
-    font-style: italic; /* Example: make reason italic */
-    color: #ffdddd; /* Example: slightly different color for reason */
-    margin-bottom: 20px !important; /* More space below the reason */
-}
-
-
-.modal button {
-    padding: 10px 20px;
-    margin-top: 20px; /* More space above button */
-    cursor: pointer;
-    background-color: #555;
-    border: none;
-    color: #eee;
-    border-radius: 5px;
-}
-.modal button:hover {
-    background-color: #777;
-}
-/* === End Game Over Modal Styling === */
-
-
-/* Interactive elements */
+/* === General Interactive Element Styling === */
 input[type="range"], input[type="color"], input[type="number"], button {
-     pointer-events: auto;
+     pointer-events: auto; /* Ensure these are always interactive */
 }
+input[type="color"] { /* Style from settings */
+    min-width: 40px;
+    height: 25px;
+    border: 1px solid #555;
+    cursor: pointer;
+    padding: 0;
+    vertical-align: middle;
+}
+
+/* === Game Over Modal Styling (Keep as before) === */
+.modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: rgba(40, 40, 40, 0.9);
+    padding: 20px;
+    border: 1px solid #666;
+    border-radius: 10px;
+    z-index: 100;
+    min-width: 300px;
+    text-align: center;
+    pointer-events: auto;
+    color: #eee;
+}
+.modal.hidden { display: none; }
+.modal h2 { margin-top: 0; color: #eee; margin-bottom: 15px; }
+.modal p { color: #eee; margin: 10px 0; line-height: 1.4; }
+.modal p span { font-weight: bold; color: #ffc107; }
+#game-over-reason { font-style: italic; color: #ffdddd; margin-bottom: 20px !important; }
+.modal button { padding: 10px 20px; margin-top: 20px; cursor: pointer; background-color: #555; border: none; color: #eee; border-radius: 5px; }
+.modal button:hover { background-color: #777; }

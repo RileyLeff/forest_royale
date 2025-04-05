@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Island Canopy Sim</title>
+    <!-- Link main style.css - it will be heavily updated in Phase B -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,108 +12,84 @@
         <canvas id="game-canvas"></canvas>
     </div>
 
-    <!-- Single UI Overlay Panel -->
-    <div id="ui-overlay">
+    <!-- ================================== -->
+    <!-- NEW UI Structure (Placeholders for Phase B) -->
+    <!-- ================================== -->
 
-        <!-- Status Section -->
-        <div class="ui-section">
-            <h3>Status</h3>
-            <div class="status-bar-container">
-                <label for="carbon-bar">Carbon Storage:</label>
-                <div class="bar-outer">
-                    <div id="carbon-bar" class="bar-inner carbon"></div>
-                </div>
-                <span id="carbon-value">100</span>
-            </div>
-            <div class="status-bar-container">
-                <label for="hydraulic-bar">Hydraulic Safety:</label>
-                <div class="bar-outer">
-                    <div id="hydraulic-bar" class="bar-inner hydraulic"></div>
-                </div>
-                 <span id="hydraulic-value">100</span>
-            </div>
-        </div>
-
-        <!-- Controls Section -->
-        <div class="ui-section">
-             <h3>Controls</h3>
-             <div>
-                <label for="stomata-slider">Stomata Openness:</label>
-                <input type="range" id="stomata-slider" min="0" max="1" step="0.05" value="0.5">
-                <span id="stomata-value">50%</span>
-             </div>
-             <div class="color-picker-container">
-                <label for="leaf-color-picker">Leaf Color:</label>
-                <input type="color" id="leaf-color-picker" value="#228B22">
-             </div>
-              <div class="color-picker-container">
-                <label for="trunk-color-picker">Trunk Color:</label>
-                <input type="color" id="trunk-color-picker" value="#8B4513">
-             </div>
-        </div>
-
-        <!-- Info Section -->
-        <div class="ui-section">
-            <h3>Info</h3>
-            <div>Day: <span id="day-counter">0</span></div>
-            <div>Seeds: <span id="seed-counter">0</span></div>
-            <div>Time: <span id="time-of-day">Day</span> (<span id="cycle-timer">0</span>s Left)</div>
-            <div id="message-log" class="message"></div>
-        </div>
-
-        <!-- Night Allocation Section -->
-        <div id="allocation-section" class="ui-section hidden">
-            <h3>Night Allocation (Day <span id="allocation-day">0</span> End)</h3>
-            <div class="timer-display">
-                Time Left: <span id="allocation-timer">10</span>s <!-- Timer text updated -->
-            </div>
-            <p>Available Carbon: <span id="allocation-available-carbon">0</span></p>
-
-            <!-- ++ NEW Slider Controls ++ -->
-            <div class="allocation-slider-group">
-                <div class="allocation-slider-row">
-                    <label for="savings-slider">Savings %:</label>
-                    <input type="range" id="savings-slider" min="0" max="100" step="1" value="50">
-                    <span class="slider-percentage" id="savings-percentage">50%</span>
-                </div>
-                <div class="allocation-slider-row">
-                     <!-- Label reflects what the slider controls: ratio of spending -->
-                    <label for="growth-ratio-slider">Growth/Seed Ratio:</label>
-                    <input type="range" id="growth-ratio-slider" min="0" max="100" step="1" value="50">
-                    <!-- Span shows interpretation -->
-                    <span class="slider-percentage" id="growth-ratio-percentage">50% G / 50% S</span>
-                </div>
-                 <p class="allocation-info">Seed Cost: <span id="seed-cost-info">1</span> C each</p>
-            </div>
-            <!-- ++ END NEW Slider Controls ++ -->
-
-            <!-- ++ REMOVED Old Input Group ++ -->
-            <!-- <div class="allocation-input-group"> ... </div> -->
-
-            <!-- Allocation Summary (Kept) -->
-            <div class="allocation-summary">
-                 <p>Allocated: <span id="allocation-spent-carbon">0</span> C</p>
-                 <p>Result: <span id="allocation-growth-result">0</span> C Growth, <span id="allocation-seeds-result">0</span> Seeds</p>
-                 <p>Remaining Savings: <span id="allocation-saved-carbon">0</span> C</p>
-            </div>
-
-            <button id="submit-allocation">Allocate & Start New Day</button>
-        </div>
-        <!-- End Allocation Section -->
-
+    <!-- Top Left Info Area -->
+    <div id="top-left-info" class="ui-panel">
+         <p>Day: <span id="day-counter">1</span></p>
+         <p>Time: <span id="time-of-day">Day</span></p>
+         <p>Weather: <span id="weather-status">Clear</span></p>
+         <p>Cycle Left: <span id="cycle-timer">--</span>s</p>
+         <!-- Message log might move here or stay separate -->
+         <div id="message-log" class="message"></div>
     </div>
-    <!-- End UI Overlay Panel -->
+
+     <!-- Top Right Leaderboard Area -->
+    <div id="top-right-leaderboard" class="ui-panel leaderboard">
+         <h4>Trees Remaining: <span id="tree-count">1</span></h4>
+         <ul id="leaderboard-list">
+             <!-- JS will populate this -->
+             <li>Player Name... Seeds: 0</li>
+         </ul>
+         <!-- Expand button or functionality TBD -->
+         <!-- <button id="expand-leaderboard">Expand</button> -->
+         <!-- <div id="leaderboard-details" class="hidden">Scrollable list...</div> -->
+    </div>
+
+     <!-- Bottom Left Status Area -->
+     <div id="bottom-left-status" class="ui-panel">
+          <div class="status-bar-container">
+                <label>Carbon:</label>
+                <div class="bar-outer"><div id="carbon-bar" class="bar-inner carbon"></div></div>
+                <span id="carbon-value">--</span>
+            </div>
+            <div class="status-bar-container">
+                <label>Hydraulics:</label>
+                <div class="bar-outer"><div id="hydraulic-bar" class="bar-inner hydraulic"></div></div>
+                 <span id="hydraulic-value">--</span>
+            </div>
+             <p>Seeds: <span id="seed-counter">0</span></p>
+             <!-- Detailed stats on hover/click TBD -->
+             <!-- <div id="detailed-stats-popup" class="hidden">Size: ..., LA: ...</div> -->
+     </div>
+
+     <!-- Bottom Bar Controls Area -->
+     <div id="bottom-bar-controls" class="ui-panel">
+          <div class="control-row stomata">
+             <label for="stomata-slider">Stomata:</label>
+             <input type="range" id="stomata-slider" min="0" max="1" step="0.05" value="0.5">
+             <span id="stomata-value">50%</span>
+          </div>
+          <!-- Allocation controls are now always visible -->
+          <div class="control-row allocation">
+             <label for="savings-slider">Savings:</label>
+             <input type="range" id="savings-slider" min="0" max="100" step="1" value="50">
+             <span class="slider-percentage" id="savings-percentage">50%</span>
+          </div>
+           <div class="control-row allocation">
+             <label for="growth-ratio-slider">Ratio (G/S):</label>
+             <input type="range" id="growth-ratio-slider" min="0" max="100" step="1" value="50">
+             <span class="slider-percentage" id="growth-ratio-percentage">50%/50%</span>
+          </div>
+          <!-- No Allocation Button needed here anymore -->
+     </div>
+
+    <!-- ================================== -->
+    <!-- End NEW UI Structure                -->
+    <!-- ================================== -->
 
 
-    <!-- Game Over Modal (Separate) -->
+    <!-- Game Over Modal (Still separate) -->
     <div id="game-over-modal" class="modal hidden">
-        <h2>Game Over!</h2>
+         <h2>Game Over!</h2>
         <p id="game-over-reason"></p>
         <p>You survived <span id="final-day">0</span> days and produced <span id="final-seeds">0</span> seeds.</p>
         <button id="restart-button">Play Again</button>
     </div>
 
-    <!-- Import Three.js -->
+    <!-- Imports -->
     <script type="importmap">
         {
             "imports": {
@@ -121,7 +98,6 @@
             }
         }
     </script>
-    <!-- Load only the main entry point -->
     <script type="module" src="main.js"></script>
 </body>
 </html>

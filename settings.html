@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Island Canopy Sim - Settings</title>
+    <link rel="stylesheet" href="style.css"> <!-- Shared style or create settings.css -->
+     <style>
+        /* Basic Settings Page Specific Styles */
+         body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #333;
+            color: #f0f0f0;
+            font-family: sans-serif;
+        }
+        .settings-container {
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 30px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px; /* Limit max width */
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+         h2 {
+            text-align: center;
+            color: #ccc;
+            margin-bottom: 25px;
+        }
+        .setting-item {
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap; /* Allow wrapping on small screens */
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #444;
+        }
+        .setting-item label {
+            flex-basis: 120px; /* Fixed width for labels */
+            flex-shrink: 0;
+            font-weight: bold;
+            color: #bbb;
+        }
+        .setting-item input[type="text"],
+        .setting-item input[type="color"] {
+             padding: 8px;
+             border: 1px solid #555;
+             background-color: #444;
+             color: #eee;
+             border-radius: 4px;
+             flex-grow: 1; /* Allow input to take space */
+        }
+         .setting-item input[type="color"] {
+            min-width: 50px; /* Ensure color picker is usable */
+            height: 40px;
+            padding: 2px;
+            flex-grow: 0; /* Don't let color picker grow too much */
+        }
+        .placeholder { /* Style for future feature area */
+            border: 1px dashed #555;
+            padding: 15px;
+            text-align: center;
+            color: #777;
+            font-style: italic;
+            margin-top: 10px;
+            width: 100%; /* Take full width */
+        }
+         .button-group {
+            margin-top: 30px;
+            text-align: center;
+        }
+         button {
+             padding: 10px 20px;
+             font-size: 1em;
+             cursor: pointer;
+             border: none;
+             border-radius: 5px;
+             background-color: #008080; /* Teal */
+             color: #f0f0f0;
+             transition: background-color 0.3s ease;
+         }
+         button:hover {
+             background-color: #009999; /* Darker Teal */
+         }
+    </style>
+</head>
+<body>
+    <div class="settings-container">
+        <h2>Settings</h2>
+
+        <div class="setting-item">
+            <label for="player-name">Player Name:</label>
+            <input type="text" id="player-name" maxlength="16" placeholder="Treebard">
+        </div>
+
+        <div class="setting-item">
+            <label for="leaf-color">Leaf Color:</label>
+            <input type="color" id="leaf-color" value="#228B22">
+        </div>
+
+        <div class="setting-item">
+            <label for="trunk-color">Trunk Color:</label>
+            <input type="color" id="trunk-color" value="#8B4513">
+        </div>
+
+         <div class="setting-item">
+             <label>Canopy Style:</label>
+             <div class="placeholder">
+                 Advanced Customization (Paint / Image Upload) Coming Soon!
+             </div>
+         </div>
+
+
+        <div class="button-group">
+            <button id="save-settings">Save & Back</button>
+        </div>
+
+    </div>
+
+    <script src="settings.js"></script>
+</body>
+</html>

@@ -1,47 +1,55 @@
 import * as Config from './config.js';
-// NOTE: calculateDimensions is called from main.js after tree creation now
-// to avoid circular dependencies during initialization.
 
 export const gameState = {};
 
-// Initializes or resets the game state object
 export function initializeGameState() {
-    // Using Object.assign to clear and reset properties
+    // Load settings from localStorage or use defaults
+    const savedName = localStorage.getItem('playerName') || 'Treebard';
+    const savedLeafColor = localStorage.getItem('leafColor') || Config.DEFAULT_LEAF_COLOR;
+    const savedTrunkColor = localStorage.getItem('trunkColor') || Config.DEFAULT_TRUNK_COLOR;
+
     Object.assign(gameState, {
+        // Core gameplay state
         carbonStorage: Config.INITIAL_CARBON,
         hydraulicSafety: Config.INITIAL_HYDRAULICS,
         currentLA: Config.INITIAL_LEAF_AREA,
-        effectiveLA: Config.INITIAL_LEAF_AREA, // Start with full effectiveness
+        effectiveLA: Config.INITIAL_LEAF_AREA,
         trunkHeight: Config.INITIAL_TRUNK_HEIGHT,
         seedCount: 0,
-        stomatalConductance: 0.5, // Default starting value
+        stomatalConductance: 0.5,
         day: 1,
-        timeOfDay: 'day', // 'day' or 'night'
-        timeInCycle: 0,   // Seconds elapsed in current day/night phase
-        droughtFactor: 1.0, // Environmental factor affecting transpiration
-        isPaused: false,    // For allocation phase
+        // timeOfDay might become purely visual or removed
+        timeOfDay: 'day', // Keep for potential visual sun cycle?
+        timeInCycle: 0,   // Now tracks time *within* the current day/allocation cycle
+        droughtFactor: 1.0,
+
+        // REMOVED isPaused and allocationTimerId
+        // isPaused: false,
+        // allocationTimerId: null,
+
         gameOver: false,
-        gameOverReason: '', // Store the reason for game over
-        treeMeshGroup: null,// Reference to the THREE.Group for the tree
-        damagedLAPercentage: 0, // Tracks canopy health (0 to 1)
-        // Colors
-        leafColor: Config.DEFAULT_LEAF_COLOR,
-        trunkColor: Config.DEFAULT_TRUNK_COLOR,
-        // Allocation Timer
-        allocationTimerId: null,
+        gameOverReason: '',
 
-        // ++ NEW: Store last used allocation percentages ++
-        lastSavingsPercent: 50, // Default to 50% savings initially
-        lastGrowthRatioPercent: 50, // Default to 50/50 growth/seed split initially
-        // ++ END NEW ++
+        // Tree object reference
+        treeMeshGroup: null,
+        damagedLAPercentage: 0,
 
-        // Derived dimensions - initialized to 0, calculated later
+        // Settings loaded from localStorage
+        playerName: savedName,
+        leafColor: savedLeafColor,
+        trunkColor: savedTrunkColor,
+
+        // Last allocation state (still needed, updated by sliders)
+        lastSavingsPercent: 50,
+        lastGrowthRatioPercent: 50,
+
+        // Derived dimensions (calculated after init)
         trunkWidth: 0,
         trunkDepth: 0,
         canopyWidth: 0,
         canopyDepth: 0,
     });
+    console.log(`GameState Initialized. Player: ${gameState.playerName}, Leaf: ${gameState.leafColor}, Trunk: ${gameState.trunkColor}`);
 }
 
-// Call initialize once on load to ensure gameState object exists with defaults
 initializeGameState();
