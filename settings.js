@@ -41,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
         saveButton.addEventListener('click', () => {
             saveSettings();
             // Navigate back to the landing page
-            window.location.href = 'landing.html';
+            window.location.href = 'index.html';
         });
     }
 

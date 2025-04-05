@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Island Canopy Sim</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+    </div>
+
+    <!-- ================================== -->
+    <!-- NEW UI Structure -->
+    <!-- ================================== -->
+
+    <!-- Top Left Info Area -->
+    <div id="top-left-info" class="ui-panel">
+         <p>Day: <span id="day-counter">1</span></p>
+         <p>Time: <span id="time-of-day">Day</span></p>
+         <p>Weather: <span id="weather-status">Clear</span></p>
+         <p>Cycle Left: <span id="cycle-timer">--</span>s</p>
+         <div id="message-log" class="message"></div>
+    </div>
+
+     <!-- Top Right Leaderboard Area -->
+    <div id="top-right-leaderboard" class="ui-panel leaderboard">
+         <h4>Trees Remaining: <span id="tree-count">1</span></h4>
+         <ul id="leaderboard-list">
+             <li>Player Name... Seeds: 0</li>
+         </ul>
+    </div>
+
+     <!-- Bottom Left Status Area -->
+     <div id="bottom-left-status" class="ui-panel">
+          <div class="status-bar-container">
+                <label>Carbon:</label>
+                <div class="bar-outer"><div id="carbon-bar" class="bar-inner carbon"></div></div>
+                <span id="carbon-value">--</span>
+            </div>
+            <div class="status-bar-container">
+                <label>Hydraulics:</label>
+                <div class="bar-outer"><div id="hydraulic-bar" class="bar-inner hydraulic"></div></div>
+                 <span id="hydraulic-value">--</span>
+            </div>
+             <p>Seeds: <span id="seed-counter">0</span></p>
+     </div>
+
+     <!-- Control Panel Area (Bottom Right) -->
+     <div id="control-panel-right" class="ui-panel">
+          <!-- ++ Updated Label Text ++ -->
+          <div class="control-row stomata">
+             <label for="stomata-slider">Stomatal Openness:</label>
+             <input type="range" id="stomata-slider" min="0" max="1" step="0.05" value="0.5">
+             <span id="stomata-value">50%</span>
+          </div>
+          <div class="control-row allocation">
+             <label for="savings-slider">Carbon Savings %:</label>
+             <input type="range" id="savings-slider" min="0" max="100" step="1" value="50">
+             <span class="slider-percentage" id="savings-percentage">50%</span>
+          </div>
+           <div class="control-row allocation">
+             <label for="growth-ratio-slider"> Invest % Grow/Seeds:</label> <!-- Changed label -->
+             <input type="range" id="growth-ratio-slider" min="0" max="100" step="1" value="50">
+             <span class="slider-percentage" id="growth-ratio-percentage">50%/50%</span>
+          </div>
+          <!-- ++ End Updated Labels ++ -->
+     </div>
+     <!-- End Control Panel Area -->
+
+    <!-- ================================== -->
+    <!-- End NEW UI Structure                -->
+    <!-- ================================== -->
+
+
+    <!-- Game Over Modal (Still separate) -->
+    <div id="game-over-modal" class="modal hidden">
+         <h2>Game Over!</h2>
+        <p id="game-over-reason"></p>
+        <p>You survived <span id="final-day">0</span> days and produced <span id="final-seeds">0</span> seeds.</p>
+        <button id="restart-button">Play Again</button>
+    </div>
+
+    <!-- Imports -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>

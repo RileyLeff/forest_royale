@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (singlePlayerButton) {
         singlePlayerButton.addEventListener('click', () => {
             console.log("Navigating to Single Player game...");
-            window.location.href = 'index.html'; // Navigate to the main game page
+            window.location.href = 'game.html'; // Navigate to the main game page
         });
     }
 
