@@ -105,20 +105,19 @@ body, html {
 #top-right-leaderboard li:last-child {
     border-bottom: none;
 }
-/* Styles for expanded view, hover effects TBD */
 
 
 /* --- Bottom Left Status Panel --- */
 #bottom-left-status {
     bottom: 10px;
     left: 10px;
-    width: 220px; /* Fixed width might be better */
+    width: 220px; /* Fixed width */
 }
 #bottom-left-status .status-bar-container {
     margin-bottom: 10px;
 }
 #bottom-left-status label {
-    display: block; /* Label on its own line */
+    display: block;
     margin-bottom: 2px;
     font-size: 0.85em;
     color: #ccc;
@@ -139,88 +138,92 @@ body, html {
 .hydraulic { background-color: #2196F3; }
 #bottom-left-status span#carbon-value,
 #bottom-left-status span#hydraulic-value {
-    float: right; /* Put value next to bar */
+    float: right;
     font-size: 0.8em;
-    line-height: 15px; /* Align vertically with bar */
+    line-height: 15px;
     margin-left: 5px;
     color: #ccc;
 }
 #bottom-left-status p { /* Seed count display */
     margin: 8px 0 0 0;
-    clear: both; /* Ensure it's below the floated values */
+    clear: both;
     font-weight: bold;
 }
 #bottom-left-status p span#seed-counter {
-     color: #ffc107; /* Highlight seed count */
+     color: #ffc107;
 }
 
 
-/* --- Bottom Bar Controls Panel --- */
-#bottom-bar-controls {
+/* --- ++ NEW: Bottom Right Control Panel ++ --- */
+#control-panel-right {
     bottom: 10px;
-    left: 240px; /* Position next to bottom-left panel */
-    right: 10px; /* Stretch towards the right */
-    /* Or use fixed width: width: 500px; left: 50%; transform: translateX(-50%); */
-    display: flex; /* Arrange controls horizontally */
-    justify-content: space-around; /* Distribute space */
-    align-items: center;
-    padding: 8px 15px; /* Adjust padding */
-    gap: 20px; /* Space between control groups */
-}
-.control-row {
+    right: 10px;
+    width: 200px; /* Adjust width as needed for vertical layout */
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column; /* Stack controls vertically */
+    gap: 15px; /* Space between control rows */
+    padding: 15px 10px; /* Adjust padding */
 }
+
+/* ++ REMOVED Styles for #bottom-bar-controls ++ */
+/* #bottom-bar-controls { ... } */
+
+/* Styling for rows within the vertical panel */
+.control-row {
+    display: grid; /* Use grid for alignment within the row */
+    grid-template-columns: auto 1fr; /* Label | Slider/Value Area */
+    grid-template-rows: auto auto; /* Row 1 for Label/Value, Row 2 for Slider */
+    gap: 2px 8px; /* Small vertical gap, larger horizontal */
+    align-items: center;
+    width: 100%; /* Ensure row takes full width of panel */
+}
+
 .control-row label {
+    grid-column: 1 / 2; /* Label in first column */
+    grid-row: 1 / 2;    /* Label in first row */
     white-space: nowrap;
     color: #ccc;
     font-size: 0.85em;
+    justify-self: start; /* Align label left */
 }
+
 .control-row input[type="range"] {
-    width: 100px; /* Adjust slider width */
+    grid-column: 1 / 3; /* Slider spans both columns */
+    grid-row: 2 / 3;    /* Slider in second row */
+    width: 100%;        /* Slider takes full width */
     cursor: pointer;
-    vertical-align: middle;
+    margin-top: 2px; /* Small space below label/value */
 }
+
 .control-row span { /* Percentage displays */
+    grid-column: 2 / 3; /* Value in second column */
+    grid-row: 1 / 2;    /* Value in first row (aligned with label) */
     font-size: 0.85em;
     font-weight: bold;
     color: #ccc;
-    min-width: 40px; /* Reserve space */
-    text-align: right;
+    text-align: right; /* Align value right */
+    white-space: nowrap;
+    justify-self: end; /* Ensure right alignment in grid */
 }
-.control-row span#growth-ratio-percentage {
-     min-width: 75px; /* Needs more space */
-}
+/* Adjust min-width if needed for specific value spans */
+/* .control-row span#growth-ratio-percentage { min-width: 75px; } */
+
 
 /* === General Interactive Element Styling === */
 input[type="range"], input[type="color"], input[type="number"], button {
      pointer-events: auto; /* Ensure these are always interactive */
 }
-input[type="color"] { /* Style from settings */
-    min-width: 40px;
-    height: 25px;
-    border: 1px solid #555;
-    cursor: pointer;
-    padding: 0;
-    vertical-align: middle;
+input[type="color"] {
+    min-width: 40px; height: 25px; border: 1px solid #555;
+    cursor: pointer; padding: 0; vertical-align: middle;
 }
 
-/* === Game Over Modal Styling (Keep as before) === */
+/* === Game Over Modal Styling (Unchanged) === */
 .modal {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background-color: rgba(40, 40, 40, 0.9);
-    padding: 20px;
-    border: 1px solid #666;
-    border-radius: 10px;
-    z-index: 100;
-    min-width: 300px;
-    text-align: center;
-    pointer-events: auto;
-    color: #eee;
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background-color: rgba(40, 40, 40, 0.9); padding: 20px; border: 1px solid #666;
+    border-radius: 10px; z-index: 100; min-width: 300px; text-align: center;
+    pointer-events: auto; color: #eee;
 }
 .modal.hidden { display: none; }
 .modal h2 { margin-top: 0; color: #eee; margin-bottom: 15px; }

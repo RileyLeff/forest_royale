@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Island Canopy Sim</title>
-    <!-- Link main style.css - it will be heavily updated in Phase B -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,7 +12,7 @@
     </div>
 
     <!-- ================================== -->
-    <!-- NEW UI Structure (Placeholders for Phase B) -->
+    <!-- NEW UI Structure -->
     <!-- ================================== -->
 
     <!-- Top Left Info Area -->
@@ -22,7 +21,6 @@
          <p>Time: <span id="time-of-day">Day</span></p>
          <p>Weather: <span id="weather-status">Clear</span></p>
          <p>Cycle Left: <span id="cycle-timer">--</span>s</p>
-         <!-- Message log might move here or stay separate -->
          <div id="message-log" class="message"></div>
     </div>
 
@@ -30,12 +28,8 @@
     <div id="top-right-leaderboard" class="ui-panel leaderboard">
          <h4>Trees Remaining: <span id="tree-count">1</span></h4>
          <ul id="leaderboard-list">
-             <!-- JS will populate this -->
              <li>Player Name... Seeds: 0</li>
          </ul>
-         <!-- Expand button or functionality TBD -->
-         <!-- <button id="expand-leaderboard">Expand</button> -->
-         <!-- <div id="leaderboard-details" class="hidden">Scrollable list...</div> -->
     </div>
 
      <!-- Bottom Left Status Area -->
@@ -51,30 +45,29 @@
                  <span id="hydraulic-value">--</span>
             </div>
              <p>Seeds: <span id="seed-counter">0</span></p>
-             <!-- Detailed stats on hover/click TBD -->
-             <!-- <div id="detailed-stats-popup" class="hidden">Size: ..., LA: ...</div> -->
      </div>
 
-     <!-- Bottom Bar Controls Area -->
-     <div id="bottom-bar-controls" class="ui-panel">
+     <!-- Control Panel Area (Bottom Right) -->
+     <div id="control-panel-right" class="ui-panel">
+          <!-- ++ Updated Label Text ++ -->
           <div class="control-row stomata">
-             <label for="stomata-slider">Stomata:</label>
+             <label for="stomata-slider">Stomatal Openness:</label>
              <input type="range" id="stomata-slider" min="0" max="1" step="0.05" value="0.5">
              <span id="stomata-value">50%</span>
           </div>
-          <!-- Allocation controls are now always visible -->
           <div class="control-row allocation">
-             <label for="savings-slider">Savings:</label>
+             <label for="savings-slider">Carbon Savings %:</label>
              <input type="range" id="savings-slider" min="0" max="100" step="1" value="50">
              <span class="slider-percentage" id="savings-percentage">50%</span>
           </div>
            <div class="control-row allocation">
-             <label for="growth-ratio-slider">Ratio (G/S):</label>
+             <label for="growth-ratio-slider"> Invest % Grow/Seeds:</label> <!-- Changed label -->
              <input type="range" id="growth-ratio-slider" min="0" max="100" step="1" value="50">
              <span class="slider-percentage" id="growth-ratio-percentage">50%/50%</span>
           </div>
-          <!-- No Allocation Button needed here anymore -->
+          <!-- ++ End Updated Labels ++ -->
      </div>
+     <!-- End Control Panel Area -->
 
     <!-- ================================== -->
     <!-- End NEW UI Structure                -->
