@@ -2,7 +2,7 @@
 // Contains the main updateUI function to refresh dynamic UI elements.
 
 import { gameState } from '../gameState.js'; // Reads current state
-import * as Config from '../config.js'; // Needs constants like MAX values, cycle lengths
+import * as Config from '../config.js'; // Needs constants like cycle lengths
 import { uiElements } from './elements.js'; // Needs element references
 
 /**
@@ -18,10 +18,18 @@ export function updateUI() {
 
     // Update Status Bars (Bottom Left)
     if (uiElements.carbonBar) {
+        // Carbon bar still uses static MAX_CARBON
         uiElements.carbonBar.style.width = `${(gameState.carbonStorage / Config.MAX_CARBON) * 100}%`;
     }
     if (uiElements.hydraulicBar) {
-        uiElements.hydraulicBar.style.width = `${(gameState.hydraulicSafety / Config.MAX_HYDRAULIC) * 100}%`;
+        // ++ MODIFIED: Use dynamic maxHydraulic for percentage calculation ++
+        if (gameState.maxHydraulic > 0) { // Ensure maxHydraulic is positive to avoid division by zero
+             uiElements.hydraulicBar.style.width = `${(gameState.hydraulicSafety / gameState.maxHydraulic) * 100}%`;
+        } else {
+             // If max is 0 (shouldn't happen after init, but safety check), set width to 0%
+             uiElements.hydraulicBar.style.width = '0%';
+        }
+        // ++ END MODIFICATION ++
     }
     if (uiElements.carbonValueUI) {
         uiElements.carbonValueUI.textContent = Math.floor(gameState.carbonStorage);

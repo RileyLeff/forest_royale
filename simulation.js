@@ -3,6 +3,7 @@
 import { gameState } from './gameState.js';
 import * as Config from './config.js';
 // Need growTree now for allocation step
+// Import functions needed from tree.js - will update later when functions change
 import { growTree, updateCanopyVisuals, setCanopyVisibility } from './tree.js';
 // Import UI functions from specific modules
 import { showMessage, clearMessage } from './ui/messageHandler.js'; // Correct path for messages
@@ -61,7 +62,9 @@ export function updateSimulation(deltaTime) {
 
     // Clamp values
     gameState.carbonStorage = Math.max(0, Math.min(Config.MAX_CARBON, gameState.carbonStorage));
-    gameState.hydraulicSafety = Math.max(0, Math.min(Config.MAX_HYDRAULIC, gameState.hydraulicSafety));
+    // ++ MODIFIED: Use dynamic maxHydraulic from gameState for clamping ++
+    gameState.hydraulicSafety = Math.max(0, Math.min(gameState.maxHydraulic, gameState.hydraulicSafety));
+    // ++ END MODIFICATION ++
 
     // --- Crown Dieback / Damage ---
     const wasStressed = gameState.hydraulicSafety < Config.HYDRAULIC_DAMAGE_THRESHOLD;
@@ -69,12 +72,14 @@ export function updateSimulation(deltaTime) {
         const damageIncrease = Config.CROWN_DIEBACK_RATE * deltaTime;
         gameState.damagedLAPercentage = Math.min(1, gameState.damagedLAPercentage + damageIncrease);
         gameState.effectiveLA = gameState.currentLA * (1 - gameState.damagedLAPercentage);
+        // Note: This call will change later
         updateCanopyVisuals(); // Reads gameState directly now
         // Use the correctly imported showMessage
         showMessage(`Hydraulic stress! Canopy damage! Safety: ${gameState.hydraulicSafety.toFixed(0)}`, 'warning');
     } else {
          // Use the correctly imported clearMessage
          if (wasStressed) { clearMessage(); }
+         // Note: This call might change later
          if (gameState.damagedLAPercentage === 0) { updateCanopyVisuals(); } // Reads gameState directly
     }
 
@@ -82,10 +87,6 @@ export function updateSimulation(deltaTime) {
     // Check if enough time has passed for an allocation cycle
     const allocationCycleLength = Config.DAY_DURATION_SECONDS; // Use day duration as interval
     // Check if the *total accumulated time* crosses a multiple of the cycle length
-    // Example: Day ends at 20s, 40s, 60s etc.
-    // This requires tracking total time or checking if timeInCycle just wrapped around 0 after exceeding duration
-    // Simpler: Use modulo, but needs careful handling if deltaTime > cycleLength
-    // Let's use a state variable to track if allocation is due this frame
     if (!gameState.allocationAppliedThisCycle && gameState.timeInCycle >= allocationCycleLength) {
          console.log(`SIM: End of Day ${gameState.day}. Applying allocation.`);
          applyAllocation(); // Call the allocation function
@@ -114,6 +115,7 @@ export function updateSimulation(deltaTime) {
 }
 
 // --- Function to Apply Allocation ---
+// Note: This will be modified later for sink limitation
 function applyAllocation() {
     // Reads allocation percentages directly from gameState (updated by UI sliders)
     const available = Math.floor(gameState.carbonStorage);
@@ -155,6 +157,7 @@ function triggerGameOver(reason) {
     gameState.gameOver = true;
     gameState.gameOverReason = reason;
     // No need to set isPaused anymore
+    // Note: This call will change later
     setCanopyVisibility(false); // Assumes reads gameState directly
     // Use the correctly imported showGameOverUI
     showGameOverUI();

@@ -4,10 +4,15 @@ export const k_TA_LA_RATIO = 0.01; // Trunk cross-section area / Leaf Area ratio
 export const INITIAL_LEAF_AREA = 5;
 export const INITIAL_TRUNK_HEIGHT = 2;
 export const INITIAL_CARBON = 100;
-export const INITIAL_HYDRAULICS = 100;
+export const INITIAL_HYDRAULICS = 100; // Starting hydraulic safety value
 
 export const MAX_CARBON = 200;
-export const MAX_HYDRAULIC = 100;
+// REMOVED: export const MAX_HYDRAULIC = 100; // Static maximum removed
+
+// ++ NEW: Hydraulic Buffer Configuration ++
+export const BASE_HYDRAULIC = 50; // Base hydraulic safety buffer independent of size
+export const HYDRAULIC_SCALE_PER_LA = 10; // Additional buffer capacity per unit of currentLA
+// ++ END NEW ++
 
 export const PHOTOSYNTHESIS_RATE_PER_LA = 0.5; // Carbon gain per LA per second at max light & stomata=1
 export const RESPIRATION_RATE_PER_LA = 0.02;   // Carbon loss per LA per second
@@ -31,5 +36,4 @@ export const DEFAULT_LEAF_COLOR = '#228B22'; // Forest Green
 export const DEFAULT_TRUNK_COLOR = '#8B4513'; // Saddle Brown
 
 // UI Related
-// ++ UPDATED Timer Duration ++
-export const ALLOCATION_TIMER_DURATION = 10; // Seconds for allocation decision (Changed from 7)
+export const ALLOCATION_TIMER_DURATION = 10; // Seconds for allocation decision

@@ -28,6 +28,7 @@ export function createPlayerTree(/* state */) { // Reads directly from gameState
         state.treeMeshGroup = null;
     }
     // Calculate dimensions if needed (e.g., after state init)
+    // Note: This will be replaced/augmented later when we add updateTreeGeometry
     if ((state.trunkWidth <= 0 || state.canopyWidth <= 0) && state.currentLA > 0) {
          calculateDimensions(); // Uses imported gameState
     }
@@ -37,6 +38,7 @@ export function createPlayerTree(/* state */) { // Reads directly from gameState
     canopyMaterial = new THREE.MeshStandardMaterial({ color: state.leafColor });
 
     // Create geometries using gameState dimensions
+    // Note: Geometry creation will be centralized in updateTreeGeometry later
     const trunkGeometry = new THREE.BoxGeometry(state.trunkWidth || 0.1, state.trunkHeight || 0.1, state.trunkDepth || 0.1);
     const canopyThickness = 0.1;
     const canopyGeometry = new THREE.BoxGeometry(state.canopyWidth || 0.1, canopyThickness, state.canopyDepth || 0.1);
@@ -58,7 +60,8 @@ export function createPlayerTree(/* state */) { // Reads directly from gameState
     if (scene) scene.add(state.treeMeshGroup);
     else console.error("Scene not available in createPlayerTree");
 
-    updateCanopyVisuals(); // Uses imported gameState
+    // updateCanopyVisuals(); // This will be replaced by updateCanopyMaterial/updateTreeGeometry later
+    // Initial update will happen later when geometry/material functions are added
 
     console.log("Player tree created/recreated using saved colors.");
 }
@@ -76,8 +79,13 @@ export function growTree(carbonForGrowth) {
 
     state.currentLA *= growthFactor;
     state.trunkHeight *= growthFactor;
-    calculateDimensions(); // Uses imported gameState
 
+    // ++ NEW: Recalculate max hydraulic buffer based on new size ++
+    state.maxHydraulic = Config.BASE_HYDRAULIC + Config.HYDRAULIC_SCALE_PER_LA * state.currentLA;
+    // ++ END NEW ++
+
+    // Note: These calls will be replaced/modified when updateTreeGeometry is added
+    calculateDimensions(); // Uses imported gameState
     state.effectiveLA = state.currentLA * (1 - state.damagedLAPercentage);
 
     const trunkMesh = state.treeMeshGroup.getObjectByName("trunk");
@@ -96,11 +104,12 @@ export function growTree(carbonForGrowth) {
 }
 
 // Updates the canopy color based on damage percentage and base leaf color
+// Note: This will be renamed to updateCanopyMaterial later
 export function updateCanopyVisuals(/* state */) { // Reads directly from gameState
     const state = gameState; // Use imported gameState
     if (!canopyMaterial || !state.treeMeshGroup) return;
     const canopyMesh = state.treeMeshGroup.getObjectByName("canopy");
-    if (!canopyMesh || !canopyMesh.visible) return;
+    if (!canopyMesh || !canopyMesh.visible) return; // Will change later
     const baseColor = new THREE.Color(state.leafColor);
     const brown = new THREE.Color(0x8B4513);
     const damageLerp = Math.max(0, Math.min(1, state.damagedLAPercentage));
@@ -124,3 +133,5 @@ export function setCanopyVisibility(isVisible) {
         }
     }
 }
+
+// Note: Further changes (updateTreeGeometry, updateCanopyMaterial) will be added later.

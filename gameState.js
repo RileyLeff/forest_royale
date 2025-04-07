@@ -11,21 +11,16 @@ export function initializeGameState() {
     Object.assign(gameState, {
         // Core gameplay state
         carbonStorage: Config.INITIAL_CARBON,
-        hydraulicSafety: Config.INITIAL_HYDRAULICS,
+        hydraulicSafety: Config.INITIAL_HYDRAULICS, // Start with the initial value
         currentLA: Config.INITIAL_LEAF_AREA,
         effectiveLA: Config.INITIAL_LEAF_AREA,
         trunkHeight: Config.INITIAL_TRUNK_HEIGHT,
         seedCount: 0,
         stomatalConductance: 0.5,
         day: 1,
-        // timeOfDay might become purely visual or removed
         timeOfDay: 'day', // Keep for potential visual sun cycle?
         timeInCycle: 0,   // Now tracks time *within* the current day/allocation cycle
         droughtFactor: 1.0,
-
-        // REMOVED isPaused and allocationTimerId
-        // isPaused: false,
-        // allocationTimerId: null,
 
         gameOver: false,
         gameOverReason: '',
@@ -48,8 +43,21 @@ export function initializeGameState() {
         trunkDepth: 0,
         canopyWidth: 0,
         canopyDepth: 0,
+
+        // ++ NEW: Maximum hydraulic buffer, calculated dynamically ++
+        maxHydraulic: 0,
     });
-    console.log(`GameState Initialized. Player: ${gameState.playerName}, Leaf: ${gameState.leafColor}, Trunk: ${gameState.trunkColor}`);
+
+    // ++ NEW: Calculate initial maxHydraulic and clamp starting safety ++
+    // Calculate initial maxHydraulic based on initial LA and config settings
+    gameState.maxHydraulic = Config.BASE_HYDRAULIC + Config.HYDRAULIC_SCALE_PER_LA * gameState.currentLA;
+    // Ensure initial safety doesn't exceed the calculated maximum
+    gameState.hydraulicSafety = Math.min(gameState.hydraulicSafety, gameState.maxHydraulic);
+    // ++ END NEW ++
+
+
+    console.log(`GameState Initialized. Player: ${gameState.playerName}, Leaf: ${gameState.leafColor}, Trunk: ${gameState.trunkColor}, MaxHydraulics: ${gameState.maxHydraulic.toFixed(1)}`);
 }
 
+// Call initialization immediately when the module loads
 initializeGameState();
