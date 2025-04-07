@@ -1,0 +1,2034 @@
+---
+DIRECTORY STRUCTURE
+---
+- README.md
+- config.js
+- game.html
+- gameState.js
+- index.html
+- index.js
+- main.js
+- sceneSetup.js
+- settings.html
+- settings.js
+- simulation.js
+- style.css
+- tree.js
+- ui/
+  - controlsHandlers.js
+  - elements.js
+  - gameOver.js
+  - leaderboard.js
+  - messageHandler.js
+  - setupListeners.js
+  - update.js
+- ui.js
+
+---
+FILE CONTENTS
+---
+
+--- FILE: ui/leaderboard.js ---
+
+
+--- FILE: main.js ---
+import * as THREE from 'three';
+import { gameState, initializeGameState } from './gameState.js';
+import * as Config from './config.js'; // Import config if needed directly
+import { initScene, renderer, camera, controls, scene } from './sceneSetup.js';
+// Import necessary tree functions for initialization and restart
+import { createPlayerTree, calculateDimensions, disposeTreeMaterials } from './tree.js';
+
+// ++ Import functions from specific UI modules ++
+import { cacheDOMElements } from './ui/elements.js';
+import { setupUIListeners } from './ui/setupListeners.js';
+import { updateUI } from './ui/update.js';
+import { showMessage, clearMessage } from './ui/messageHandler.js'; // Import message handlers
+import { hideGameOverModal } from './ui/gameOver.js'; // Needed for restart
+
+// Import simulation logic
+import { updateSimulation } from './simulation.js';
+
+// --- Global Variables ---
+let clock = new THREE.Clock();
+let animationFrameId = null; // To potentially stop/restart the loop
+
+// --- Initialization Function ---
+function initializeApp() {
+    console.log("Initializing Island Canopy Sim Game...");
+
+    // Set up DOM element references first (from ui/elements.js)
+    cacheDOMElements();
+
+    // Set up Three.js scene, camera, renderer, controls, environment
+    const canvas = document.getElementById('game-canvas'); // Still need canvas ref here
+    if (!canvas) {
+        console.error("Canvas element #game-canvas not found!");
+        return;
+    }
+    initScene(canvas);
+
+    // Initialize game state (loads settings)
+    initializeGameState();
+
+    // Calculate initial dimensions based on the freshly initialized state
+    calculateDimensions(); // Reads gameState directly now
+
+    // Create the initial player tree visuals using the state
+    createPlayerTree(); // Reads gameState directly now
+
+    // Reset camera target *after* tree exists and has dimensions
+     if (controls) {
+        // Use default height from Config if gameState hasn't updated yet
+        const targetY = (gameState.trunkHeight || Config.INITIAL_TRUNK_HEIGHT) / 2;
+        controls.target.set(0, targetY, 0);
+        controls.update(); // Apply immediately
+     } else {
+         console.warn("OrbitControls not available to set target.");
+     }
+
+    // Set up UI event listeners (from ui/setupListeners.js)
+    setupUIListeners();
+
+    // Perform initial UI update (from ui/update.js)
+    updateUI();
+    // Clear message log (from ui/messageHandler.js)
+    clearMessage();
+
+    // Start the main game loop
+    startGameLoop();
+
+    console.log("Game Initialization complete. Starting game loop.");
+}
+
+// --- Main Game Loop ---
+// ++ Ensure this function is fully defined ++
+function gameLoop() {
+    // Request the next frame
+    animationFrameId = requestAnimationFrame(gameLoop);
+
+    // Get time delta for simulation updates
+    const deltaTime = clock.getDelta();
+
+    // Log current state *before* updateSimulation (Optional, can be noisy)
+    // console.log(`MAIN: Loop - Day ${gameState.day}, ${gameState.timeOfDay}, GameOver:${gameState.gameOver}, TimeInCycle:${gameState.timeInCycle.toFixed(1)}`);
+
+
+    // --- Core Loop Logic ---
+    // 1. Update Simulation (handles game logic, physics, time progression, periodic allocation)
+    //    It internally checks if game over.
+    updateSimulation(deltaTime);
+
+    // 2. Update UI (reflects changes in state onto the screen)
+    //    Only update if the game isn't over.
+    if (!gameState.gameOver) {
+        updateUI(); // From ui/update.js
+    }
+
+    // 3. Update Camera Controls (allows damping etc. to work)
+    if (controls) {
+        controls.update();
+    }
+
+    // 4. Render Scene
+    if (renderer && scene && camera) {
+        renderer.render(scene, camera);
+    } else {
+        // Critical components missing, stop the loop to prevent errors
+        console.error("Render components missing in game loop!");
+        if (animationFrameId !== null) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+        }
+    }
+}
+
+// Helper to start/restart the game loop
+// ++ Ensure this function is fully defined ++
+function startGameLoop() {
+    // Make sure any previous loop is stopped before starting a new one
+    if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+    }
+    clock = new THREE.Clock(); // Reset clock for accurate delta time
+    gameLoop(); // Start the loop
+    console.log("MAIN: Game loop started/restarted."); // Add log
+}
+
+
+// --- Exported Restart Handler ---
+// This function is called by the button listener in ui/setupListeners.js
+export function handleRestart() {
+    console.log("MAIN: Handling Restart Request...");
+
+    // Hide the Game Over modal (from ui/gameOver.js)
+    hideGameOverModal();
+
+    // Clean up old Three.js resources
+    if (gameState.treeMeshGroup) {
+         if(scene) scene.remove(gameState.treeMeshGroup);
+         else console.warn("MAIN: Scene not found during tree cleanup.");
+         disposeTreeMaterials();
+         gameState.treeMeshGroup = null;
+    } else {
+        console.log("MAIN: No old tree mesh group found to remove.");
+        disposeTreeMaterials();
+    }
+
+    // Reset game state logic
+    initializeGameState();
+    console.log("MAIN: Game state initialized.");
+
+    // Calculate dimensions
+    calculateDimensions(); // Reads gameState directly
+    console.log("MAIN: Dimensions calculated.");
+
+    // Create new tree visuals
+    createPlayerTree(); // Reads gameState directly
+    console.log("MAIN: New player tree created.");
+
+    // Reset camera target
+    if (controls) {
+        const targetY = (gameState.trunkHeight || Config.INITIAL_TRUNK_HEIGHT) / 2;
+        controls.target.set(0, targetY, 0);
+        controls.update();
+        console.log("MAIN: Camera target reset.");
+    }
+
+    // Reset UI display elements
+    updateUI();
+    // Clear message log
+    clearMessage();
+
+    // Ensure simulation loop is running and flags are correct
+    startGameLoop(); // Ensure loop is running after reset
+
+    console.log("MAIN: Game Restarted successfully.");
+}
+
+
+// --- Start Application ---
+// This script (main.js) is loaded by game.html
+document.addEventListener('DOMContentLoaded', initializeApp);
+
+--- FILE: style.css ---
+/* === Global & Base Styles === */
+body, html {
+    margin: 0;
+    padding: 0;
+    overflow: hidden; /* Prevent scrollbars on the page */
+    font-family: sans-serif;
+    background-color: #333; /* Fallback background */
+    color: #eee;       /* Default text color */
+}
+
+#game-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0; /* Ensure canvas is behind UI panels */
+}
+
+#game-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* === General UI Panel Styling === */
+.ui-panel {
+    position: absolute; /* Position panels absolutely relative to body/viewport */
+    background-color: rgba(0, 0, 0, 0.65); /* Slightly darker background for panels */
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 10px;
+    box-sizing: border-box; /* Include padding and border in element's total width and height */
+    color: #eee;
+    z-index: 10; /* Ensure panels are above the canvas */
+    pointer-events: auto; /* Allow interaction with panels */
+}
+
+.ui-panel h3, .ui-panel h4 { /* General headings for panels */
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 1.0em; /* Slightly smaller headings */
+    color: #ddd;
+    border-bottom: 1px solid #555;
+    padding-bottom: 5px;
+}
+
+.ui-panel p, .ui-panel div, .ui-panel label, .ui-panel span {
+    font-size: 0.9em; /* Consistent font size within panels */
+}
+
+/* === Specific Panel Positioning === */
+
+/* --- Top Left Info Panel --- */
+#top-left-info {
+    top: 10px;
+    left: 10px;
+    min-width: 180px; /* Ensure some minimum width */
+}
+#top-left-info p {
+    margin: 4px 0; /* Tighter spacing */
+}
+#top-left-info span {
+    font-weight: bold;
+    color: #ffc107; /* Amber highlight for values */
+}
+.message { /* Message Log styling */
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed #555;
+    color: #ffcc00;
+    font-weight: bold;
+    min-height: 1.2em;
+    font-size: 0.85em; /* Smaller message text */
+}
+.message.warning { color: #ff9800; }
+.message.error { color: #f44336; }
+
+
+/* --- Top Right Leaderboard --- */
+#top-right-leaderboard {
+    top: 10px;
+    right: 10px;
+    min-width: 200px;
+    max-width: 280px;
+    background-color: rgba(0, 0, 0, 0.5); /* More translucent */
+}
+#top-right-leaderboard h4 {
+    font-size: 0.9em;
+    text-align: center;
+    border: none; /* Remove border for header */
+    padding-bottom: 0;
+    margin-bottom: 5px;
+}
+#top-right-leaderboard ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 0.85em;
+}
+#top-right-leaderboard li {
+    padding: 3px 0;
+    border-bottom: 1px dotted #444;
+}
+#top-right-leaderboard li:last-child {
+    border-bottom: none;
+}
+
+
+/* --- Bottom Left Status Panel --- */
+#bottom-left-status {
+    bottom: 10px;
+    left: 10px;
+    width: 220px; /* Fixed width */
+}
+#bottom-left-status .status-bar-container {
+    margin-bottom: 10px;
+}
+#bottom-left-status label {
+    display: block;
+    margin-bottom: 2px;
+    font-size: 0.85em;
+    color: #ccc;
+}
+.bar-outer {
+    background-color: #555;
+    border-radius: 3px;
+    height: 15px;
+    width: 100%;
+    overflow: hidden;
+}
+.bar-inner {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.2s ease-in-out;
+}
+.carbon { background-color: #4CAF50; }
+.hydraulic { background-color: #2196F3; }
+#bottom-left-status span#carbon-value,
+#bottom-left-status span#hydraulic-value {
+    float: right;
+    font-size: 0.8em;
+    line-height: 15px;
+    margin-left: 5px;
+    color: #ccc;
+}
+#bottom-left-status p { /* Seed count display */
+    margin: 8px 0 0 0;
+    clear: both;
+    font-weight: bold;
+}
+#bottom-left-status p span#seed-counter {
+     color: #ffc107;
+}
+
+
+/* --- ++ NEW: Bottom Right Control Panel ++ --- */
+#control-panel-right {
+    bottom: 10px;
+    right: 10px;
+    width: 200px; /* Adjust width as needed for vertical layout */
+    display: flex;
+    flex-direction: column; /* Stack controls vertically */
+    gap: 15px; /* Space between control rows */
+    padding: 15px 10px; /* Adjust padding */
+}
+
+/* ++ REMOVED Styles for #bottom-bar-controls ++ */
+/* #bottom-bar-controls { ... } */
+
+/* Styling for rows within the vertical panel */
+.control-row {
+    display: grid; /* Use grid for alignment within the row */
+    grid-template-columns: auto 1fr; /* Label | Slider/Value Area */
+    grid-template-rows: auto auto; /* Row 1 for Label/Value, Row 2 for Slider */
+    gap: 2px 8px; /* Small vertical gap, larger horizontal */
+    align-items: center;
+    width: 100%; /* Ensure row takes full width of panel */
+}
+
+.control-row label {
+    grid-column: 1 / 2; /* Label in first column */
+    grid-row: 1 / 2;    /* Label in first row */
+    white-space: nowrap;
+    color: #ccc;
+    font-size: 0.85em;
+    justify-self: start; /* Align label left */
+}
+
+.control-row input[type="range"] {
+    grid-column: 1 / 3; /* Slider spans both columns */
+    grid-row: 2 / 3;    /* Slider in second row */
+    width: 100%;        /* Slider takes full width */
+    cursor: pointer;
+    margin-top: 2px; /* Small space below label/value */
+}
+
+.control-row span { /* Percentage displays */
+    grid-column: 2 / 3; /* Value in second column */
+    grid-row: 1 / 2;    /* Value in first row (aligned with label) */
+    font-size: 0.85em;
+    font-weight: bold;
+    color: #ccc;
+    text-align: right; /* Align value right */
+    white-space: nowrap;
+    justify-self: end; /* Ensure right alignment in grid */
+}
+/* Adjust min-width if needed for specific value spans */
+/* .control-row span#growth-ratio-percentage { min-width: 75px; } */
+
+
+/* === General Interactive Element Styling === */
+input[type="range"], input[type="color"], input[type="number"], button {
+     pointer-events: auto; /* Ensure these are always interactive */
+}
+input[type="color"] {
+    min-width: 40px; height: 25px; border: 1px solid #555;
+    cursor: pointer; padding: 0; vertical-align: middle;
+}
+
+/* === Game Over Modal Styling (Unchanged) === */
+.modal {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background-color: rgba(40, 40, 40, 0.9); padding: 20px; border: 1px solid #666;
+    border-radius: 10px; z-index: 100; min-width: 300px; text-align: center;
+    pointer-events: auto; color: #eee;
+}
+.modal.hidden { display: none; }
+.modal h2 { margin-top: 0; color: #eee; margin-bottom: 15px; }
+.modal p { color: #eee; margin: 10px 0; line-height: 1.4; }
+.modal p span { font-weight: bold; color: #ffc107; }
+#game-over-reason { font-style: italic; color: #ffdddd; margin-bottom: 20px !important; }
+.modal button { padding: 10px 20px; margin-top: 20px; cursor: pointer; background-color: #555; border: none; color: #eee; border-radius: 5px; }
+.modal button:hover { background-color: #777; }
+
+--- FILE: game.html ---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Island Canopy Sim</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+    </div>
+
+    <!-- ================================== -->
+    <!-- NEW UI Structure -->
+    <!-- ================================== -->
+
+    <!-- Top Left Info Area -->
+    <div id="top-left-info" class="ui-panel">
+         <p>Day: <span id="day-counter">1</span></p>
+         <p>Time: <span id="time-of-day">Day</span></p>
+         <p>Weather: <span id="weather-status">Clear</span></p>
+         <p>Cycle Left: <span id="cycle-timer">--</span>s</p>
+         <div id="message-log" class="message"></div>
+    </div>
+
+     <!-- Top Right Leaderboard Area -->
+    <div id="top-right-leaderboard" class="ui-panel leaderboard">
+         <h4>Trees Remaining: <span id="tree-count">1</span></h4>
+         <ul id="leaderboard-list">
+             <li>Player Name... Seeds: 0</li>
+         </ul>
+    </div>
+
+     <!-- Bottom Left Status Area -->
+     <div id="bottom-left-status" class="ui-panel">
+          <div class="status-bar-container">
+                <label>Carbon:</label>
+                <div class="bar-outer"><div id="carbon-bar" class="bar-inner carbon"></div></div>
+                <span id="carbon-value">--</span>
+            </div>
+            <div class="status-bar-container">
+                <label>Hydraulics:</label>
+                <div class="bar-outer"><div id="hydraulic-bar" class="bar-inner hydraulic"></div></div>
+                 <span id="hydraulic-value">--</span>
+            </div>
+             <p>Seeds: <span id="seed-counter">0</span></p>
+     </div>
+
+     <!-- Control Panel Area (Bottom Right) -->
+     <div id="control-panel-right" class="ui-panel">
+          <!-- ++ Updated Label Text ++ -->
+          <div class="control-row stomata">
+             <label for="stomata-slider">Stomatal Openness:</label>
+             <input type="range" id="stomata-slider" min="0" max="1" step="0.05" value="0.5">
+             <span id="stomata-value">50%</span>
+          </div>
+          <div class="control-row allocation">
+             <label for="savings-slider">Carbon Savings %:</label>
+             <input type="range" id="savings-slider" min="0" max="100" step="1" value="50">
+             <span class="slider-percentage" id="savings-percentage">50%</span>
+          </div>
+           <div class="control-row allocation">
+             <label for="growth-ratio-slider"> Invest % Grow/Seeds:</label> <!-- Changed label -->
+             <input type="range" id="growth-ratio-slider" min="0" max="100" step="1" value="50">
+             <span class="slider-percentage" id="growth-ratio-percentage">50%/50%</span>
+          </div>
+          <!-- ++ End Updated Labels ++ -->
+     </div>
+     <!-- End Control Panel Area -->
+
+    <!-- ================================== -->
+    <!-- End NEW UI Structure                -->
+    <!-- ================================== -->
+
+
+    <!-- Game Over Modal (Still separate) -->
+    <div id="game-over-modal" class="modal hidden">
+         <h2>Game Over!</h2>
+        <p id="game-over-reason"></p>
+        <p>You survived <span id="final-day">0</span> days and produced <span id="final-seeds">0</span> seeds.</p>
+        <button id="restart-button">Play Again</button>
+    </div>
+
+    <!-- Imports -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
+
+--- FILE: simulation.js ---
+// Simulation Module: Handles game logic updates, physics, time
+
+import { gameState } from './gameState.js';
+import * as Config from './config.js';
+// Need growTree now for allocation step
+import { growTree, updateCanopyVisuals, setCanopyVisibility } from './tree.js';
+// Still need UI functions for messages and game over
+import { showMessage, showGameOverUI, clearMessage } from './ui.js';
+import { sunLight } from './sceneSetup.js'; // Keep for potential visual cycle
+
+// REMOVED startNewDay function export
+
+
+// Updates the simulation state by one time step (deltaTime)
+export function updateSimulation(deltaTime) {
+    // Only check for game over now
+    if (gameState.gameOver) return;
+
+    // --- Optional Visual Day/Night Cycle (Doesn't pause simulation) ---
+    const visualCycleDuration = Config.DAY_DURATION_SECONDS + Config.NIGHT_DURATION_SECONDS; // Total visual cycle length
+    gameState.timeInCycle += deltaTime; // Accumulate time globally
+    const cycleProgress = (gameState.timeInCycle % visualCycleDuration) / visualCycleDuration; // Progress through visual cycle (0 to 1)
+
+    if (sunLight) {
+        // Example: Simple intensity change based on cycle progress
+        const dayFraction = Config.DAY_DURATION_SECONDS / visualCycleDuration;
+        if (cycleProgress <= dayFraction) { // Daytime visual
+            const dayProgress = cycleProgress / dayFraction;
+            sunLight.intensity = 0.3 + 1.2 * Math.sin(dayProgress * Math.PI); // Sine peak at midday
+            gameState.timeOfDay = 'day'; // Update UI string
+        } else { // Nighttime visual
+             sunLight.intensity = 0.1; // Dim night light
+             gameState.timeOfDay = 'night'; // Update UI string
+        }
+    } else {
+        // If no sunlight, assume it's always day for simulation logic?
+        gameState.timeOfDay = 'day';
+    }
+
+
+    // --- Physiological Simulation (Always runs) ---
+    const stomata = gameState.stomatalConductance;
+    const effLA = Math.max(0, gameState.effectiveLA);
+    const currentLA = Math.max(0, gameState.currentLA);
+    const trunkVolume = Math.max(0, gameState.trunkWidth * gameState.trunkDepth * gameState.trunkHeight);
+
+    // Photosynthesis (Gain modulated by visual light intensity)
+    const currentLightIntensity = sunLight ? Math.max(0, sunLight.intensity / 1.5) : 1.0; // Approx 0-1
+    const potentialCarbonGain = Config.PHOTOSYNTHESIS_RATE_PER_LA * effLA * stomata * currentLightIntensity;
+    gameState.carbonStorage += potentialCarbonGain * deltaTime;
+
+    // Respiration (Always happens)
+    const respirationLoss = (Config.RESPIRATION_RATE_PER_LA * currentLA + Config.RESPIRATION_RATE_PER_TRUNK_VOL * trunkVolume);
+    gameState.carbonStorage -= respirationLoss * deltaTime;
+
+    // Transpiration & Hydraulics (Always happens)
+    const waterLoss = Config.TRANSPIRATION_RATE_PER_LA * effLA * stomata * gameState.droughtFactor;
+    const hydraulicChange = (Config.HYDRAULIC_RECOVERY_RATE * (1 - stomata)) - waterLoss;
+    gameState.hydraulicSafety += hydraulicChange * deltaTime;
+
+    // Clamp values
+    gameState.carbonStorage = Math.max(0, Math.min(Config.MAX_CARBON, gameState.carbonStorage));
+    gameState.hydraulicSafety = Math.max(0, Math.min(Config.MAX_HYDRAULIC, gameState.hydraulicSafety));
+
+    // --- Crown Dieback / Damage ---
+    const wasStressed = gameState.hydraulicSafety < Config.HYDRAULIC_DAMAGE_THRESHOLD;
+    if (gameState.hydraulicSafety < Config.HYDRAULIC_DAMAGE_THRESHOLD) {
+        const damageIncrease = Config.CROWN_DIEBACK_RATE * deltaTime;
+        gameState.damagedLAPercentage = Math.min(1, gameState.damagedLAPercentage + damageIncrease);
+        gameState.effectiveLA = gameState.currentLA * (1 - gameState.damagedLAPercentage);
+        updateCanopyVisuals(); // Reads gameState directly now
+        showMessage(`Hydraulic stress! Canopy damage! Safety: ${gameState.hydraulicSafety.toFixed(0)}`, 'warning');
+    } else {
+         if (wasStressed) { clearMessage(); }
+         if (gameState.damagedLAPercentage === 0) { updateCanopyVisuals(); } // Reads gameState directly
+    }
+
+    // --- Periodic Allocation & Day Increment ---
+    // Check if enough time has passed for an allocation cycle
+    const allocationCycleLength = Config.DAY_DURATION_SECONDS; // Use day duration as interval
+    // Check if the *total accumulated time* crosses a multiple of the cycle length
+    // Example: Day ends at 20s, 40s, 60s etc.
+    // This requires tracking total time or checking if timeInCycle just wrapped around 0 after exceeding duration
+    // Simpler: Use modulo, but needs careful handling if deltaTime > cycleLength
+    // Let's use a state variable to track if allocation is due this frame
+    if (!gameState.allocationAppliedThisCycle && gameState.timeInCycle >= allocationCycleLength) {
+         console.log(`SIM: End of Day ${gameState.day}. Applying allocation.`);
+         applyAllocation(); // Call the allocation function
+         gameState.day++; // Increment the day count
+         gameState.timeInCycle -= allocationCycleLength; // Reset timer relative to overshoot
+         gameState.allocationAppliedThisCycle = true; // Mark as applied
+
+         clearMessage(); // Clear previous message
+         showMessage(`Day ${gameState.day} starting.`); // Show new day message
+    } else if (gameState.timeInCycle < allocationCycleLength) {
+         // Reset the flag once the timer is below the threshold again
+         gameState.allocationAppliedThisCycle = false;
+    }
+
+
+    // --- Check Game Over Conditions (Check AFTER allocation potentially reduces carbon) ---
+    if (gameState.carbonStorage <= 0) {
+        triggerGameOver("Starvation! Ran out of carbon.");
+        return;
+    }
+    if (gameState.hydraulicSafety <= 0) {
+        triggerGameOver("Desiccation! Hydraulic system failed.");
+        return;
+    }
+}
+
+// --- Function to Apply Allocation ---
+function applyAllocation() {
+    // Reads allocation percentages directly from gameState (updated by UI sliders)
+    const available = Math.floor(gameState.carbonStorage);
+    const savingsPercent = Math.max(0, Math.min(100, gameState.lastSavingsPercent));
+    const growthRatioPercent = Math.max(0, Math.min(100, gameState.lastGrowthRatioPercent));
+
+    // Perform calculations
+    const carbonToSpend = Math.floor(available * (1 - savingsPercent / 100));
+    const actualCarbonForGrowth = Math.floor(carbonToSpend * (growthRatioPercent / 100));
+    const carbonForSeeds = carbonToSpend - actualCarbonForGrowth;
+    const seedsToMake = carbonForSeeds; // Since cost = 1
+    const actualCarbonForSeeds = seedsToMake * Config.SEED_COST; // = seedsToMake
+
+    const totalSpent = actualCarbonForGrowth + actualCarbonForSeeds;
+
+    console.log(`SIM Applying Allocation: Available=${available}, Spend=${totalSpent}, Growth=${actualCarbonForGrowth}, Seeds=${seedsToMake}`);
+
+    // Final sanity checks
+    if (totalSpent > available + 0.01 || totalSpent < 0) {
+        console.error(`SIM ALLOCATION ERROR: Invalid spend calculated (${totalSpent}). Skipping allocation.`);
+        showMessage("Allocation Error!", "error");
+    } else {
+        // Apply changes to gameState
+        gameState.carbonStorage -= totalSpent;
+        gameState.seedCount += seedsToMake;
+        if (actualCarbonForGrowth > 0) {
+            // Call growTree - assumes growTree reads gameState directly now
+            growTree(actualCarbonForGrowth);
+        }
+    }
+}
+
+
+// --- Game Over Logic ---
+function triggerGameOver(reason) {
+    if (gameState.gameOver) return;
+    console.log("Game Over:", reason);
+    gameState.gameOver = true;
+    gameState.gameOverReason = reason;
+    // No need to set isPaused anymore
+    setCanopyVisibility(false); // Assumes reads gameState directly
+    showGameOverUI();
+}
+
+--- FILE: sceneSetup.js ---
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as Config from './config.js';
+
+export let scene;
+export let camera;
+export let renderer;
+export let controls;
+export let sunLight;
+
+export function initScene(canvas) {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87ceeb);
+    scene.fog = new THREE.Fog(0x87ceeb, 50, 150);
+
+    const aspectRatio = window.innerWidth / window.innerHeight;
+    camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 1000);
+    camera.position.set(15, 15, 15);
+
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    // Lights
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambientLight);
+
+    sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    sunLight.position.set(30, 50, 20);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.camera.near = 0.5;
+    sunLight.shadow.camera.far = 150;
+    const shadowCamSize = Config.ISLAND_RADIUS * 1.5;
+    sunLight.shadow.camera.left = -shadowCamSize;
+    sunLight.shadow.camera.right = shadowCamSize;
+    sunLight.shadow.camera.top = shadowCamSize;
+    sunLight.shadow.camera.bottom = -shadowCamSize;
+    scene.add(sunLight);
+    scene.add(sunLight.target); // Ensure target is added for potential updates
+
+    // Controls
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.target.set(0, Config.INITIAL_TRUNK_HEIGHT / 2, 0); // Initial target
+    controls.maxPolarAngle = Math.PI / 2 - 0.1;
+    controls.minDistance = 5;
+    controls.maxDistance = 100;
+
+    // Environment Meshes
+    createEnvironment();
+
+    // Resize Listener
+    window.addEventListener('resize', onWindowResize);
+
+    console.log("Scene initialized");
+}
+
+function createEnvironment() {
+    // Island
+    const islandGeometry = new THREE.CylinderGeometry(Config.ISLAND_RADIUS, Config.ISLAND_RADIUS, Config.ISLAND_LEVEL * 2, 32);
+    const islandMaterial = new THREE.MeshStandardMaterial({ color: 0x967969 }); // Brownish
+    const islandMesh = new THREE.Mesh(islandGeometry, islandMaterial);
+    islandMesh.position.y = Config.ISLAND_LEVEL / 2; // Center it vertically
+    islandMesh.receiveShadow = true;
+    scene.add(islandMesh);
+
+    // Water
+    const waterGeometry = new THREE.PlaneGeometry(Config.ISLAND_RADIUS * 4, Config.ISLAND_RADIUS * 4);
+    const waterMaterial = new THREE.MeshStandardMaterial({
+        color: 0x4682B4, // Steel blue
+        transparent: true,
+        opacity: 0.8,
+        roughness: 0.2,
+        metalness: 0.1,
+    });
+    const waterMesh = new THREE.Mesh(waterGeometry, waterMaterial);
+    waterMesh.rotation.x = -Math.PI / 2;
+    waterMesh.position.y = Config.WATER_LEVEL;
+    waterMesh.receiveShadow = true; // Water can receive shadows from trees
+    scene.add(waterMesh);
+}
+
+
+function onWindowResize() {
+    if (camera && renderer) {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+}
+
+--- FILE: ui/controlsHandlers.js ---
+// ui/controlsHandlers.js
+// Contains event handler functions for user controls (sliders).
+
+// Import the shared game state
+import { gameState } from '../gameState.js'; // Adjust path to go up one level
+// Import the cached UI elements
+import { uiElements } from './elements.js';
+
+/**
+ * Handles changes to the Stomata Slider input.
+ * Updates the game state and the UI display for stomata %.
+ * @param {Event} e - The input event object.
+ */
+export function handleStomataChange(e) {
+    // Update game state immediately
+    gameState.stomatalConductance = parseFloat(e.target.value);
+    // Update UI display immediately
+    if (uiElements.stomataValueUI) {
+        uiElements.stomataValueUI.textContent = `${Math.round(gameState.stomatalConductance * 100)}%`;
+    } else {
+        console.warn("Stomata value UI element missing in handler.");
+    }
+}
+
+/**
+ * Handles changes to EITHER the Savings or Growth Ratio sliders.
+ * Updates the relevant percentage display and immediately updates
+ * the corresponding last known allocation state in gameState.
+ */
+export function handleAllocationSliderChange() {
+    // Check required elements exist
+    if (!uiElements.savingsSlider || !uiElements.growthRatioSlider ||
+        !uiElements.savingsPercentageUI || !uiElements.growthRatioPercentageUI) {
+            console.warn("Allocation slider UI elements missing in handler.");
+            return;
+        }
+
+    // Read current values from both sliders
+    const savingsPercent = parseInt(uiElements.savingsSlider.value) || 0;
+    const growthRatioPercent = parseInt(uiElements.growthRatioSlider.value) || 0;
+
+    // Update percentage displays immediately
+    uiElements.savingsPercentageUI.textContent = `${savingsPercent}%`;
+    const seedRatioPercent = 100 - growthRatioPercent;
+    uiElements.growthRatioPercentageUI.textContent = `${growthRatioPercent}%/${seedRatioPercent}%`; // Short format
+
+    // Update gameState immediately so the simulation uses the latest values
+    // when it performs the periodic allocation.
+    gameState.lastSavingsPercent = savingsPercent;
+    gameState.lastGrowthRatioPercent = growthRatioPercent;
+
+    // Optional: Log the change
+    // console.log(`UI Handler: Updated Allocation State - Savings: ${savingsPercent}%, Growth Ratio: ${growthRatioPercent}%`);
+
+    // No need to update the allocation *preview* text here anymore,
+    // as the allocation happens periodically based on these stored values.
+}
+
+--- FILE: ui.js ---
+// UI Module: Handles DOM interactions, updates, and listeners
+
+import { gameState } from './gameState.js';
+import * as Config from './config.js';
+// Only need setCanopyVisibility from tree.js for game over
+import { setCanopyVisibility } from './tree.js';
+import { handleRestart } from './main.js';
+// No simulation imports needed now
+
+// DOM Element References (cached)
+let uiElements = {};
+
+export function cacheDOMElements() {
+    uiElements = {
+        gameContainer: document.getElementById('game-container'), canvas: document.getElementById('game-canvas'),
+        dayCounterUI: document.getElementById('day-counter'), timeOfDayUI: document.getElementById('time-of-day'),
+        weatherStatusUI: document.getElementById('weather-status'), cycleTimerUI: document.getElementById('cycle-timer'),
+        messageLogUI: document.getElementById('message-log'), leaderboardListUI: document.getElementById('leaderboard-list'),
+        treeCountUI: document.getElementById('tree-count'), carbonBar: document.getElementById('carbon-bar'),
+        hydraulicBar: document.getElementById('hydraulic-bar'), carbonValueUI: document.getElementById('carbon-value'),
+        hydraulicValueUI: document.getElementById('hydraulic-value'), seedCounterUI: document.getElementById('seed-counter'),
+        stomataSlider: document.getElementById('stomata-slider'), stomataValueUI: document.getElementById('stomata-value'),
+        savingsSlider: document.getElementById('savings-slider'), savingsPercentageUI: document.getElementById('savings-percentage'),
+        growthRatioSlider: document.getElementById('growth-ratio-slider'), growthRatioPercentageUI: document.getElementById('growth-ratio-percentage'),
+        gameOverModal: document.getElementById('game-over-modal'), gameOverReasonUI: document.getElementById('game-over-reason'),
+        finalDayUI: document.getElementById('final-day'), finalSeedsUI: document.getElementById('final-seeds'),
+        restartButton: document.getElementById('restart-button'),
+    };
+     console.log("Checking DOM elements...");
+     for (const key in uiElements) { if (!uiElements[key]) console.warn(`UI element not found: ${key}`); }
+     console.log("DOM elements cached.");
+}
+
+
+// Event Listener Setup
+export function setupUIListeners() {
+    if (!uiElements.stomataSlider || !uiElements.restartButton || !uiElements.savingsSlider || !uiElements.growthRatioSlider) {
+        console.error("Cannot set up UI listeners - essential controls missing."); return;
+    }
+    uiElements.stomataSlider.addEventListener('input', handleStomataChange);
+    // Ensure restart button exists before adding listener
+    if (uiElements.restartButton) {
+        uiElements.restartButton.addEventListener('click', handleRestart); // Calls handler in main.js
+    } else {
+         console.error("Restart button not found!");
+    }
+    uiElements.savingsSlider.addEventListener('input', handleAllocationSliderChange);
+    uiElements.growthRatioSlider.addEventListener('input', handleAllocationSliderChange);
+}
+
+// Event Handlers
+function handleStomataChange(e) {
+    gameState.stomatalConductance = parseFloat(e.target.value);
+    if (uiElements.stomataValueUI) uiElements.stomataValueUI.textContent = `${Math.round(gameState.stomatalConductance * 100)}%`;
+}
+
+function handleAllocationSliderChange() {
+    if (!uiElements.savingsSlider || !uiElements.growthRatioSlider || !uiElements.savingsPercentageUI || !uiElements.growthRatioPercentageUI) return;
+    const savingsPercent = parseInt(uiElements.savingsSlider.value) || 0;
+    const growthRatioPercent = parseInt(uiElements.growthRatioSlider.value) || 0;
+    uiElements.savingsPercentageUI.textContent = `${savingsPercent}%`;
+    const seedRatioPercent = 100 - growthRatioPercent;
+    uiElements.growthRatioPercentageUI.textContent = `${growthRatioPercent}%/${seedRatioPercent}%`;
+    gameState.lastSavingsPercent = savingsPercent;
+    gameState.lastGrowthRatioPercent = growthRatioPercent;
+}
+
+
+// --- UI Update Functions ---
+export function updateUI() {
+    if (!gameState) return;
+
+    // Update Status Bars (Bottom Left)
+    if (uiElements.carbonBar) uiElements.carbonBar.style.width = `${(gameState.carbonStorage / Config.MAX_CARBON) * 100}%`;
+    if (uiElements.hydraulicBar) uiElements.hydraulicBar.style.width = `${(gameState.hydraulicSafety / Config.MAX_HYDRAULIC) * 100}%`;
+    if (uiElements.carbonValueUI) uiElements.carbonValueUI.textContent = Math.floor(gameState.carbonStorage);
+    if (uiElements.hydraulicValueUI) uiElements.hydraulicValueUI.textContent = Math.floor(gameState.hydraulicSafety);
+    if (uiElements.seedCounterUI) uiElements.seedCounterUI.textContent = gameState.seedCount;
+
+    // Update Info (Top Left)
+    if (uiElements.dayCounterUI) uiElements.dayCounterUI.textContent = gameState.day;
+    if (uiElements.timeOfDayUI) uiElements.timeOfDayUI.textContent = gameState.timeOfDay.charAt(0).toUpperCase() + gameState.timeOfDay.slice(1);
+    // Update Cycle Timer - showing time left until next allocation/day increment
+    const allocationCycleLength = Config.DAY_DURATION_SECONDS;
+    const timeSinceLastCycleStart = gameState.timeInCycle % allocationCycleLength;
+    const timeLeftInCycle = Math.max(0, allocationCycleLength - timeSinceLastCycleStart);
+    if (uiElements.cycleTimerUI) uiElements.cycleTimerUI.textContent = Math.floor(timeLeftInCycle);
+    if (uiElements.weatherStatusUI) uiElements.weatherStatusUI.textContent = gameState.droughtFactor > 1.1 ? "Dry" : "Clear";
+
+
+    // Update Controls (Bottom Bar) - Ensure sliders reflect gameState
+    if (uiElements.stomataSlider && parseFloat(uiElements.stomataSlider.value) !== gameState.stomatalConductance) {
+        uiElements.stomataSlider.value = gameState.stomatalConductance;
+    }
+    if (uiElements.stomataValueUI) uiElements.stomataValueUI.textContent = `${Math.round(gameState.stomatalConductance * 100)}%`;
+    if (uiElements.savingsSlider && parseInt(uiElements.savingsSlider.value) !== gameState.lastSavingsPercent) {
+         uiElements.savingsSlider.value = gameState.lastSavingsPercent;
+    }
+     if (uiElements.savingsPercentageUI) uiElements.savingsPercentageUI.textContent = `${gameState.lastSavingsPercent}%`;
+    if (uiElements.growthRatioSlider && parseInt(uiElements.growthRatioSlider.value) !== gameState.lastGrowthRatioPercent) {
+        uiElements.growthRatioSlider.value = gameState.lastGrowthRatioPercent;
+    }
+     if (uiElements.growthRatioPercentageUI) {
+        const seedRatioPercent = 100 - gameState.lastGrowthRatioPercent;
+        uiElements.growthRatioPercentageUI.textContent = `${gameState.lastGrowthRatioPercent}%/${seedRatioPercent}%`;
+     }
+
+    // Update Leaderboard (Top Right - Basic for SP)
+     if (uiElements.leaderboardListUI) { uiElements.leaderboardListUI.innerHTML = `<li>${gameState.playerName || 'Player'}: ${gameState.seedCount} Seeds</li>`; }
+     if (uiElements.treeCountUI) { uiElements.treeCountUI.textContent = gameState.gameOver ? 0 : 1; }
+}
+
+export function showMessage(text, type = 'info') {
+     if (uiElements.messageLogUI) { uiElements.messageLogUI.textContent = text; uiElements.messageLogUI.className = `message ${type}`; }
+     else { console.warn("Message log UI element not found:", text); }
+}
+
+export function clearMessage() {
+    if (uiElements.messageLogUI) { uiElements.messageLogUI.textContent = ''; uiElements.messageLogUI.className = 'message'; }
+}
+
+
+// --- Game Over UI ---
+export function showGameOverUI() {
+    console.log("UI: showGameOverUI called.");
+    if (!uiElements.gameOverModal) { console.error("UI ERROR: gameOverModal element not found!"); return; }
+    if (!uiElements.gameOverReasonUI) { console.error("UI ERROR: gameOverReasonUI element not found!"); }
+    console.log(`UI: Attempting to display reason: "${gameState.gameOverReason}"`);
+    if(uiElements.gameOverReasonUI) { uiElements.gameOverReasonUI.textContent = gameState.gameOverReason; console.log("UI: gameOverReasonUI textContent set."); }
+    else { console.log("UI: gameOverReasonUI element was missing."); }
+    if(uiElements.finalDayUI) uiElements.finalDayUI.textContent = gameState.day;
+    if(uiElements.finalSeedsUI) uiElements.finalSeedsUI.textContent = gameState.seedCount;
+    setCanopyVisibility(false); // Assumes reads gameState directly
+    uiElements.gameOverModal.classList.remove('hidden');
+    console.log("UI: Game over modal made visible.");
+}
+
+// ++ NEW Exported function to hide the modal ++
+export function hideGameOverModal() {
+    if (uiElements.gameOverModal) {
+        uiElements.gameOverModal.classList.add('hidden');
+        console.log("UI: Game over modal hidden.");
+    } else {
+        console.warn("UI: Tried to hide game over modal, but element not found.");
+    }
+}
+
+--- FILE: ui/update.js ---
+// ui/update.js
+// Contains the main updateUI function to refresh dynamic UI elements.
+
+import { gameState } from '../gameState.js'; // Reads current state
+import * as Config from '../config.js'; // Needs constants like MAX values, cycle lengths
+import { uiElements } from './elements.js'; // Needs element references
+
+/**
+ * Updates all relevant UI elements based on the current gameState.
+ * Called each frame in the main game loop.
+ */
+export function updateUI() {
+    // Prevent updates if gameState or essential elements aren't ready
+    if (!gameState || !uiElements.carbonBar || !uiElements.dayCounterUI) {
+        // console.warn("updateUI called before gameState or essential UI ready.");
+        return;
+    }
+
+    // Update Status Bars (Bottom Left)
+    if (uiElements.carbonBar) {
+        uiElements.carbonBar.style.width = `${(gameState.carbonStorage / Config.MAX_CARBON) * 100}%`;
+    }
+    if (uiElements.hydraulicBar) {
+        uiElements.hydraulicBar.style.width = `${(gameState.hydraulicSafety / Config.MAX_HYDRAULIC) * 100}%`;
+    }
+    if (uiElements.carbonValueUI) {
+        uiElements.carbonValueUI.textContent = Math.floor(gameState.carbonStorage);
+    }
+    if (uiElements.hydraulicValueUI) {
+        uiElements.hydraulicValueUI.textContent = Math.floor(gameState.hydraulicSafety);
+    }
+    if (uiElements.seedCounterUI) {
+        uiElements.seedCounterUI.textContent = gameState.seedCount;
+    }
+
+    // Update Info (Top Left)
+    if (uiElements.dayCounterUI) {
+        uiElements.dayCounterUI.textContent = gameState.day;
+    }
+    if (uiElements.timeOfDayUI) {
+        // Update based on visual cycle state if kept
+        uiElements.timeOfDayUI.textContent = gameState.timeOfDay.charAt(0).toUpperCase() + gameState.timeOfDay.slice(1);
+    }
+    // Update Cycle Timer (Top Left) - showing time left until next allocation/day increment
+    const allocationCycleLength = Config.DAY_DURATION_SECONDS;
+    const timeSinceLastCycleStart = gameState.timeInCycle % allocationCycleLength;
+    const timeLeftInCycle = Math.max(0, allocationCycleLength - timeSinceLastCycleStart);
+    if (uiElements.cycleTimerUI) {
+        uiElements.cycleTimerUI.textContent = Math.floor(timeLeftInCycle);
+    }
+    if (uiElements.weatherStatusUI) {
+        // Example weather display based on drought factor
+        uiElements.weatherStatusUI.textContent = gameState.droughtFactor > 1.2 ? "Dry" : gameState.droughtFactor < 0.8 ? "Wet" : "Clear";
+    }
+
+    // Update Controls (Bottom Bar) - Ensure they reflect current game state
+    // Primarily needed for initialization/restart, user input normally syncs these
+    if (uiElements.stomataSlider) {
+        // Only update if the value differs significantly, prevent overriding user input mid-drag?
+        // Or maybe simpler: just ensure it reflects state if not actively focused?
+        // For now, let's update if different - might cause slight jump after drag end
+        if (parseFloat(uiElements.stomataSlider.value) !== gameState.stomatalConductance) {
+            uiElements.stomataSlider.value = gameState.stomatalConductance;
+        }
+    }
+    if (uiElements.stomataValueUI) {
+        uiElements.stomataValueUI.textContent = `${Math.round(gameState.stomatalConductance * 100)}%`;
+    }
+
+    // Update Allocation Sliders and their percentage displays
+    if (uiElements.savingsSlider) {
+        if (parseInt(uiElements.savingsSlider.value) !== gameState.lastSavingsPercent) {
+             uiElements.savingsSlider.value = gameState.lastSavingsPercent;
+        }
+    }
+     if (uiElements.savingsPercentageUI) {
+        uiElements.savingsPercentageUI.textContent = `${gameState.lastSavingsPercent}%`;
+     }
+
+    if (uiElements.growthRatioSlider) {
+        if (parseInt(uiElements.growthRatioSlider.value) !== gameState.lastGrowthRatioPercent) {
+            uiElements.growthRatioSlider.value = gameState.lastGrowthRatioPercent;
+        }
+    }
+     if (uiElements.growthRatioPercentageUI) {
+        const seedRatioPercent = 100 - gameState.lastGrowthRatioPercent;
+        uiElements.growthRatioPercentageUI.textContent = `${gameState.lastGrowthRatioPercent}%/${seedRatioPercent}%`;
+     }
+
+
+    // Update Leaderboard (Top Right - Basic for SP)
+     if (uiElements.leaderboardListUI) {
+         uiElements.leaderboardListUI.innerHTML = `<li>${gameState.playerName || 'Player'}: ${gameState.seedCount} Seeds</li>`;
+     }
+     if (uiElements.treeCountUI) {
+         // Assuming '1' active tree unless game over
+         uiElements.treeCountUI.textContent = gameState.gameOver ? 0 : 1;
+     }
+}
+
+--- FILE: gameState.js ---
+import * as Config from './config.js';
+
+export const gameState = {};
+
+export function initializeGameState() {
+    // Load settings from localStorage or use defaults
+    const savedName = localStorage.getItem('playerName') || 'Treebard';
+    const savedLeafColor = localStorage.getItem('leafColor') || Config.DEFAULT_LEAF_COLOR;
+    const savedTrunkColor = localStorage.getItem('trunkColor') || Config.DEFAULT_TRUNK_COLOR;
+
+    Object.assign(gameState, {
+        // Core gameplay state
+        carbonStorage: Config.INITIAL_CARBON,
+        hydraulicSafety: Config.INITIAL_HYDRAULICS,
+        currentLA: Config.INITIAL_LEAF_AREA,
+        effectiveLA: Config.INITIAL_LEAF_AREA,
+        trunkHeight: Config.INITIAL_TRUNK_HEIGHT,
+        seedCount: 0,
+        stomatalConductance: 0.5,
+        day: 1,
+        // timeOfDay might become purely visual or removed
+        timeOfDay: 'day', // Keep for potential visual sun cycle?
+        timeInCycle: 0,   // Now tracks time *within* the current day/allocation cycle
+        droughtFactor: 1.0,
+
+        // REMOVED isPaused and allocationTimerId
+        // isPaused: false,
+        // allocationTimerId: null,
+
+        gameOver: false,
+        gameOverReason: '',
+
+        // Tree object reference
+        treeMeshGroup: null,
+        damagedLAPercentage: 0,
+
+        // Settings loaded from localStorage
+        playerName: savedName,
+        leafColor: savedLeafColor,
+        trunkColor: savedTrunkColor,
+
+        // Last allocation state (still needed, updated by sliders)
+        lastSavingsPercent: 50,
+        lastGrowthRatioPercent: 50,
+
+        // Derived dimensions (calculated after init)
+        trunkWidth: 0,
+        trunkDepth: 0,
+        canopyWidth: 0,
+        canopyDepth: 0,
+    });
+    console.log(`GameState Initialized. Player: ${gameState.playerName}, Leaf: ${gameState.leafColor}, Trunk: ${gameState.trunkColor}`);
+}
+
+initializeGameState();
+
+--- FILE: README.md ---
+# FOREST ROYALE: A Plant Ecophysiology Game
+
+## 1. Overview
+
+**Island Canopy Sim** is an interactive web-based simulation game designed to teach fundamental concepts of plant ecophysiology, specifically focusing on tree "decision-making" under environmental constraints. Developed as part of PhD research in plant ecophysiology at [Your University/Institution - Optional], this project uses trees as a model system for studying resource allocation and survival strategies in sessile organisms facing gradual environmental change (like climate change).
+
+The primary goal is to create an engaging, accessible (playable on web/mobile), and scientifically grounded experience, initially targeted for a high school science fair audience, but with potential for broader educational use. The game aims to translate complex physiological processes and trade-offs into intuitive game mechanics.
+
+We approach trees not just as passive responders, but as agents making strategic "decisions" (e.g., stomatal aperture, carbon allocation) to maximize lifetime fitness (represented by reproductive output) within the bounds of physical and chemical laws governing water transport and photosynthesis.
+
+## 2. Core Concept
+
+Players control an individual tree on a shared island map (currently single-player). The objective is to survive environmental challenges (like drought) and maximize lifetime seed production. This requires balancing competing demands:
+
+*   **Growth:** Investing carbon into increasing height and leaf area can improve light capture but increases water demand and respiration costs.
+*   **Reproduction:** Allocating carbon to seeds directly contributes to the player's score but detracts from growth and reserves.
+*   **Survival (Savings & Safety):** Maintaining sufficient carbon reserves and hydraulic safety is essential to survive periods of stress (e.g., drought, low light) and nightly respiration costs.
+
+Players make real-time decisions (stomatal aperture) and periodic strategic decisions (carbon allocation) to navigate these trade-offs.
+
+## 3. Scientific Principles Demonstrated
+
+This simulation aims to illustrate key concepts in plant ecophysiology:
+
+*   **Resource Allocation Trade-offs:** The fundamental conflict between allocating limited resources (carbon) towards growth, reproduction, storage (savings), and defense (implicit via survival).
+*   **Photosynthesis-Transpiration Compromise:** The need to open stomata for CO2 uptake (photosynthesis) inevitably leads to water loss (transpiration), requiring players to manage stomatal aperture based on water availability (hydraulic safety) and carbon demand.
+*   **Hydraulic Limits:** Demonstrating that exceeding the water transport capacity (represented by low `hydraulicSafety`) leads to physiological damage (canopy dieback) and potentially death. (Currently modeled linearly with thresholds).
+*   **Carbon Balance:** The dynamic interplay between carbon gain (photosynthesis) and carbon loss (respiration, growth, reproduction), requiring players to manage reserves to avoid starvation.
+*   **Environmental Response:** How changing conditions (light - future, water/drought - basic implementation) affect physiological processes and strategic decisions.
+*   **Within-Generation Plasticity:** How a tree's "strategy" can change over its lifetime based on its state and environment, distinct from evolutionary adaptation.
+*   **(Future) Competition:** How interactions with neighbors (e.g., shading) influence resource capture and survival.
+
+## 4. Current Features (As of this README update)
+
+*   **Single-Player Mode:** One player controls one tree.
+*   **3D Environment:** Simple island map using Three.js (flat cylinder island, water plane). Basic directional lighting simulating the sun. OrbitControls for camera interaction.
+*   **Core Tree Model:** Rectangular prism trunk + thin rectangular canopy geometry. Trunk-to-leaf area ratio maintained during growth.
+*   **Player Customization:** Leaf and trunk color selectable via color pickers in the UI.
+*   **Resource Meters:**
+    *   **Carbon Storage:** Increases with photosynthesis, decreases with respiration and allocation. Max capacity (`MAX_CARBON`). Death if <= 0.
+    *   **Hydraulic Safety:** Decreases with transpiration (linked to stomata & drought factor), recovers slowly when stomata are closed. Max capacity (`MAX_HYDRAULIC`).
+*   **Real-Time Control:** Stomatal aperture controlled via a UI slider (0-100%).
+*   **Day/Night Cycle:** Defined durations for day (simulation active) and night (allocation phase).
+*   **Allocation Phase (Nightly):**
+    *   **Two-Slider UI:** Controls allocation via "Savings %" and "Growth/Seed Ratio %".
+    *   **10-Second Timer:** Visible countdown for making the allocation decision.
+    *   **Default/Timeout:** If the timer expires, the allocation proceeds based on the *current state* of the sliders (allowing implicit choice). *(Correction based on user request - previous version used a fixed random strategy)*.
+    *   **Persistence:** The slider positions from the last *manual* submission are remembered and used as the default starting position for the *next* allocation phase. Random timeout allocations do not update the remembered state.
+    *   **Savings Allowed:** Players can explicitly save carbon by adjusting the "Savings %" slider.
+    *   **Seed Cost:** Simplified to 1 Carbon per seed.
+    *   **Immediate Transition:** After allocation submission (manual or timeout), the game immediately transitions to the next day (no idle night period).
+*   **Physiological Consequences:**
+    *   **Canopy Damage:** If `hydraulicSafety` drops below `HYDRAULIC_DAMAGE_THRESHOLD`, `damagedLAPercentage` increases, reducing effective leaf area for photosynthesis and visually tinting the canopy brown.
+    *   **Death:** Occurs if `hydraulicSafety <= 0` (Desiccation) or `carbonStorage <= 0` (Starvation). Dead trees lose their canopy visually.
+*   **Growth:** Spending carbon on growth increases tree height and leaf area (updating geometry).
+*   **Modular Code Structure:** Code is organized into JavaScript modules (`config.js`, `gameState.js`, `sceneSetup.js`, `tree.js`, `ui.js`, `simulation.js`, `main.js`).
+
+## 5. Technology Stack
+
+*   **Frontend:** HTML5, CSS3, JavaScript (ES6 Modules)
+*   **3D Rendering:** [Three.js](https://threejs.org/) library (via CDN)
+*   **Camera Controls:** `OrbitControls` (from Three.js examples)
+*   **Local Development Server:** Any simple static server (e.g., `npx serve`, Python's `http.server`, VS Code Live Server)
+
+## 6. Project Structure
+
+The project code is organized into the following JavaScript modules:
+
+*   `main.js`: Main application entry point. Initializes modules, sets up the core game loop (`requestAnimationFrame`). Handles overall application flow like restart.
+*   `config.js`: Stores all game constants (rates, costs, durations, initial values, thresholds, colors, etc.).
+*   `gameState.js`: Defines and manages the central `gameState` object, including initialization logic. Stores all dynamic variables of the simulation.
+*   `sceneSetup.js`: Initializes and manages the Three.js `scene`, `camera`, `renderer`, `lights`, and `OrbitControls`. Creates the static environment (island, water). Handles window resizing. Exports key Three.js objects.
+*   `tree.js`: Handles all aspects of the player's tree object: geometry creation (`createPlayerTree`), dimension calculations (`calculateDimensions`), growth logic (`growTree`), material/color updates (`updateTreeColors`, `updateCanopyVisuals`), visibility (`setCanopyVisibility`), and resource disposal (`disposeTreeMaterials`).
+*   `simulation.js`: Contains the core simulation logic run each frame (`updateSimulation`). Handles the day/night cycle transitions, calculation of photosynthesis, respiration, transpiration, hydraulic changes, damage accumulation, and checking for game over conditions. Includes logic to start a new day (`startNewDay`).
+*   `ui.js`: Manages all interactions with the HTML Document Object Model (DOM). Caches element references (`cacheDOMElements`), sets up event listeners (`setupUIListeners`), updates UI displays based on `gameState` (`updateUI`), handles showing/hiding the allocation section (`showAllocationSection`, `hideAllocationSection`), manages the allocation timer and preview (`startAllocationTimer`, `clearAllocationTimer`, `updateAllocationPreview`), handles allocation submission (`submitAllocation`), displays messages (`showMessage`, `clearMessage`), and manages the game over screen UI (`showGameOverUI`).
+
+## 7. Getting Started / Running the Project
+
+1.  **Clone or Download:** Get the project files onto your local machine. If using git:
+    ```bash
+    git clone <repository-url>
+    cd <repository-directory>
+    ```
+2.  **Install a Simple Web Server (if needed):** If you don't have one, Node.js is recommended. Install Node.js (which includes `npm`), then you can use `npx`:
+    ```bash
+    # No installation needed if you have Node.js >= 16 approx.
+    ```
+3.  **Run the Server:** Navigate to the project's root directory in your terminal and run:
+    ```bash
+    npx serve
+    ```
+    Alternatively, use Python (if installed):
+    ```bash
+    python -m http.server
+    ```
+    Or use the Live Server extension in VS Code.
+4.  **Open in Browser:** The server will typically output a local address (e.g., `http://localhost:3000` or `http://localhost:8000`). Open this address in a modern web browser (Chrome, Firefox, Edge recommended).
+
+The game should load and start running.
+
+## 8. Gameplay Mechanics (Detailed)
+
+*   **Objective:** Survive as long as possible and produce the maximum number of seeds (`gameState.seedCount`).
+*   **Camera:** Use the mouse (left-click drag to orbit, right-click drag to pan, scroll wheel to zoom) to view your tree and the environment.
+*   **Stomata Control:** Use the "Stomata Openness" slider in the UI. Higher values increase photosynthesis potential but also increase water loss (`hydraulicSafety` decrease). Lower values conserve water but reduce carbon gain.
+*   **Color Customization:** Use the color pickers to change the appearance of your tree's trunk and leaves at any time.
+*   **Status Meters:** Monitor your `Carbon Storage` and `Hydraulic Safety` bars. Keep them above critical levels.
+*   **Day Phase:** The simulation runs. Photosynthesis adds carbon, respiration consumes carbon. Transpiration consumes hydraulic safety. Hydraulic safety recovers slowly if stomata are closed. If hydraulic safety drops below the threshold (`HYDRAULIC_DAMAGE_THRESHOLD`), the canopy visually darkens, and `effectiveLA` decreases, reducing photosynthesis.
+*   **Night Phase (Allocation):** At the end of the day, the game pauses, and the "Night Allocation" panel appears.
+    *   You have **10 seconds** (indicated by the timer) to decide.
+    *   **Savings % Slider:** Sets the percentage of *currently available* carbon you wish to keep in reserve.
+    *   **Growth/Seed Ratio % Slider:** Determines how the *remaining non-saved carbon* will be split between growth investment and seed production.
+    *   **Preview:** The summary text below the sliders updates in real-time to show the calculated carbon amounts for growth, the number of seeds produced (costing 1 C each), and the final amount of carbon saved.
+    *   **Persistence:** The slider positions will default to the values you *manually submitted* in the previous round.
+    *   **Submission:** Click "Allocate & Start New Day" to confirm your choice *before* the timer runs out.
+    *   **Timeout:** If the timer reaches zero, the allocation is automatically submitted based on the *current positions* of the sliders.
+*   **End of Allocation:** The allocation panel disappears, the chosen amounts are spent (or saved), the seed count updates, the tree grows (if applicable), and the simulation immediately transitions to the start of the next day.
+*   **Game Over:** If Carbon Storage hits 0 (Starvation) or Hydraulic Safety hits 0 (Desiccation), the game ends. The canopy disappears, and a modal shows your final score (days survived, seeds produced). Click "Play Again" to restart.
+
+## 9. Simulation Model Details (Internal Logic)
+
+*   **Carbon Balance:**
+    *   `Gain (Photosynthesis) = PHOTOSYNTHESIS_RATE_PER_LA * effectiveLA * stomatalConductance * deltaTime` (Light is currently assumed constant max during day).
+    *   `Loss (Respiration) = (RESPIRATION_RATE_PER_LA * currentLA + RESPIRATION_RATE_PER_TRUNK_VOL * trunkVolume) * deltaTime`.
+    *   `Loss (Allocation) = actualCarbonForGrowth + actualCarbonForSeeds` (occurs instantly at night).
+*   **Hydraulics:**
+    *   `Water Loss Rate = TRANSPIRATION_RATE_PER_LA * effectiveLA * stomatalConductance * droughtFactor`.
+    *   `Recovery Rate = HYDRAULIC_RECOVERY_RATE * (1 - stomatalConductance)`.
+    *   `Hydraulic Change = (Recovery Rate - Water Loss Rate) * deltaTime`.
+    *   `hydraulicSafety` is clamped between 0 and `MAX_HYDRAULIC`.
+    *   **No PLC Curve:** This is a simplified linear "safety buffer" model, not a direct simulation of water potential or Percentage Loss of Conductivity based on a vulnerability curve.
+*   **Growth:**
+    *   Calculates `biomassToAdd` based on `carbonForGrowth` and `GROWTH_COST_PER_LA`.
+    *   Calculates a `growthFactor` based on the ratio of `biomassToAdd` to an estimated current biomass.
+    *   Increases `currentLA` and `trunkHeight` by this factor.
+    *   Recalculates `trunkWidth`, `trunkDepth`, `canopyWidth`, `canopyDepth` using `calculateDimensions` based on the new `currentLA` and the fixed `k_TA_LA_RATIO`.
+    *   Updates the `geometry` of the trunk and canopy meshes (disposing of old geometry).
+*   **Damage:**
+    *   If `hydraulicSafety < HYDRAULIC_DAMAGE_THRESHOLD`: `damagedLAPercentage += CROWN_DIEBACK_RATE * deltaTime` (capped at 1).
+    *   `effectiveLA = currentLA * (1 - damagedLAPercentage)`.
+    *   Visuals: `canopyMaterial` color is linearly interpolated between `leafColor` and brown based on `damagedLAPercentage`.
+*   **Allocation (Sliders):**
+    *   `carbonToSpend = floor(availableCarbon * (1 - savingsPercent / 100))`
+    *   `carbonForGrowth = floor(carbonToSpend * (growthRatioPercent / 100))`
+    *   `carbonForSeeds = carbonToSpend - carbonForGrowth`
+    *   `seedsMade = carbonForSeeds` (since `SEED_COST` = 1)
+    *   `totalSpent = carbonForGrowth + carbonForSeeds`
+    *   `finalSavings = availableCarbon - totalSpent`
+
+## 10. Development Roadmap & Future Directions
+
+This project is actively under development. Key areas for future work include:
+
+1.  **Troubleshooting & Polish:**
+    *   Address any remaining bugs in the current single-player implementation (e.g., allocation UI behavior if issues persist).
+    *   Refine UI layout and visual feedback (e.g., clearer indication of low resources, visual effect for allocation/sunrise).
+    *   Refactor `ui.js` into smaller modules for better maintainability.
+2.  **Refining Game Logic & Mechanics:**
+    *   Introduce more sophisticated interactions (e.g., how does canopy damage affect respiration? Does growth cost change with tree size? Does low carbon affect hydraulic recovery?).
+    *   Consider adding defense allocation/costs (e.g., against pests/disease - maybe abstractly linked to maintaining high carbon reserves?).
+    *   Fine-tune balancing based on the 1C seed cost and other parameters through playtesting.
+3.  **Environment & Weather Representation:**
+    *   Implement dynamic `droughtFactor`: Vary water availability randomly or seasonally.
+    *   Introduce light variation: Simulate daily light changes, potentially add cloud cover effects.
+    *   (Future) Add seasons affecting temperature (respiration), light, water.
+4.  **Multiplayer Implementation:**
+    *   **Backend:** Set up a Node.js server with WebSockets (e.g., Socket.IO).
+    *   **Spawning:** Implement the "Fortnite-style" drop and landing spot selection.
+    *   **State Synchronization:** Reliably sync tree positions, sizes, states, and environmental conditions.
+    *   **Interaction:** Implement shading calculations between players (server-side calculation likely needed for fairness/performance).
+    *   **Scalability:** Optimize for target player count (e.g., 50 players).
+5.  **Enhancing Scientific Accuracy (Longer Term):**
+    *   Optionally replace linear hydraulics with a model incorporating water potential and a PLC curve.
+    *   Refine photosynthesis model (e.g., light response curves).
+    *   More detailed biomass/respiration modeling.
+6.  **Educational Context:**
+    *   Add tooltips or info panels explaining the scientific concepts behind game mechanics.
+    *   Potentially link game events or parameters to real-world climate change scenarios or data.
+
+## 11. Contributing
+
+[Optional: Add guidelines if you plan for others to contribute - e.g., how to report bugs, suggest features, coding style.]
+
+## 12. License
+
+[Optional: Add a license, e.g., MIT, Apache 2.0, or specify if it's proprietary.]
+
+## 13. Contact
+
+Developed by [Your Name/Alias], PhD Student in Plant Ecophysiology.
+[Optional: Add contact email or link]
+
+--- FILE: tree.js ---
+import * as THREE from 'three';
+import * as Config from './config.js';
+import { scene } from './sceneSetup.js';
+// ++ Import gameState directly ++
+import { gameState } from './gameState.js';
+
+let trunkMaterial = null;
+let canopyMaterial = null;
+
+// Calculates derived dimensions based on LA and height in gameState
+// Pass state or read directly? Reading directly simplifies calls.
+export function calculateDimensions(/* state */) {
+    const state = gameState; // Use imported gameState
+    const safeLA = Math.max(0.0001, state.currentLA);
+    state.canopyWidth = Math.sqrt(safeLA);
+    state.canopyDepth = state.canopyWidth;
+    const trunkArea = safeLA * Config.k_TA_LA_RATIO;
+    state.trunkWidth = Math.sqrt(trunkArea);
+    state.trunkDepth = state.trunkWidth;
+}
+
+// Creates or recreates the player's tree mesh group
+export function createPlayerTree(/* state */) { // Reads directly from gameState module
+    const state = gameState; // Use imported gameState
+    if (state.treeMeshGroup) {
+        if (scene) scene.remove(state.treeMeshGroup);
+        disposeTreeMaterials();
+        state.treeMeshGroup = null;
+    }
+    // Calculate dimensions if needed (e.g., after state init)
+    if ((state.trunkWidth <= 0 || state.canopyWidth <= 0) && state.currentLA > 0) {
+         calculateDimensions(); // Uses imported gameState
+    }
+
+    // Read colors directly from gameState
+    trunkMaterial = new THREE.MeshStandardMaterial({ color: state.trunkColor });
+    canopyMaterial = new THREE.MeshStandardMaterial({ color: state.leafColor });
+
+    // Create geometries using gameState dimensions
+    const trunkGeometry = new THREE.BoxGeometry(state.trunkWidth || 0.1, state.trunkHeight || 0.1, state.trunkDepth || 0.1);
+    const canopyThickness = 0.1;
+    const canopyGeometry = new THREE.BoxGeometry(state.canopyWidth || 0.1, canopyThickness, state.canopyDepth || 0.1);
+    const trunkMesh = new THREE.Mesh(trunkGeometry, trunkMaterial);
+    trunkMesh.name = "trunk";
+    trunkMesh.position.y = state.trunkHeight / 2 + Config.ISLAND_LEVEL;
+    trunkMesh.castShadow = true;
+    trunkMesh.receiveShadow = true;
+    const canopyMesh = new THREE.Mesh(canopyGeometry, canopyMaterial);
+    canopyMesh.name = "canopy";
+    canopyMesh.position.y = state.trunkHeight + canopyThickness / 2 + Config.ISLAND_LEVEL;
+    canopyMesh.castShadow = true;
+    canopyMesh.receiveShadow = true;
+
+    state.treeMeshGroup = new THREE.Group();
+    state.treeMeshGroup.add(trunkMesh);
+    state.treeMeshGroup.add(canopyMesh);
+    state.treeMeshGroup.position.set(0, 0, 0);
+    if (scene) scene.add(state.treeMeshGroup);
+    else console.error("Scene not available in createPlayerTree");
+
+    updateCanopyVisuals(); // Uses imported gameState
+
+    console.log("Player tree created/recreated using saved colors.");
+}
+
+// Applies growth based on carbon investment
+// Pass state explicitly OR read from module? Reading is simpler here.
+export function growTree(carbonForGrowth) {
+    const state = gameState; // Use imported gameState
+    if (!state.treeMeshGroup || carbonForGrowth <= 0) return;
+
+    const currentTrunkVolume = state.trunkWidth * state.trunkDepth * state.trunkHeight;
+    const currentBiomassEstimate = Math.max(1, state.currentLA + currentTrunkVolume);
+    const biomassToAdd = carbonForGrowth / Config.GROWTH_COST_PER_LA;
+    const growthFactor = 1 + (biomassToAdd / currentBiomassEstimate);
+
+    state.currentLA *= growthFactor;
+    state.trunkHeight *= growthFactor;
+    calculateDimensions(); // Uses imported gameState
+
+    state.effectiveLA = state.currentLA * (1 - state.damagedLAPercentage);
+
+    const trunkMesh = state.treeMeshGroup.getObjectByName("trunk");
+    const canopyMesh = state.treeMeshGroup.getObjectByName("canopy");
+    if (trunkMesh) {
+        trunkMesh.geometry.dispose();
+        trunkMesh.geometry = new THREE.BoxGeometry(state.trunkWidth, state.trunkHeight, state.trunkDepth);
+        trunkMesh.position.y = state.trunkHeight / 2 + Config.ISLAND_LEVEL;
+    }
+    if (canopyMesh) {
+        canopyMesh.geometry.dispose();
+        const canopyThickness = 0.1;
+        canopyMesh.geometry = new THREE.BoxGeometry(state.canopyWidth, canopyThickness, state.canopyDepth);
+        canopyMesh.position.y = state.trunkHeight + canopyThickness / 2 + Config.ISLAND_LEVEL;
+    }
+}
+
+// Updates the canopy color based on damage percentage and base leaf color
+export function updateCanopyVisuals(/* state */) { // Reads directly from gameState
+    const state = gameState; // Use imported gameState
+    if (!canopyMaterial || !state.treeMeshGroup) return;
+    const canopyMesh = state.treeMeshGroup.getObjectByName("canopy");
+    if (!canopyMesh || !canopyMesh.visible) return;
+    const baseColor = new THREE.Color(state.leafColor);
+    const brown = new THREE.Color(0x8B4513);
+    const damageLerp = Math.max(0, Math.min(1, state.damagedLAPercentage));
+    canopyMaterial.color.lerpColors(baseColor, brown, damageLerp);
+}
+
+// Helper function to dispose of materials
+export function disposeTreeMaterials() {
+    if (trunkMaterial) { trunkMaterial.dispose(); trunkMaterial = null; }
+    if (canopyMaterial) { canopyMaterial.dispose(); canopyMaterial = null; }
+}
+
+// Sets the visibility of the canopy mesh
+// Pass state OR read from module? Reading avoids passing it everywhere.
+export function setCanopyVisibility(isVisible) {
+    const state = gameState; // Use imported gameState
+     if (state.treeMeshGroup) {
+        const canopyMesh = state.treeMeshGroup.getObjectByName("canopy");
+        if (canopyMesh) {
+            canopyMesh.visible = isVisible;
+        }
+    }
+}
+
+--- FILE: index.js ---
+document.addEventListener('DOMContentLoaded', () => {
+    const singlePlayerButton = document.getElementById('start-single-player');
+    const multiPlayerButton = document.getElementById('start-multi-player');
+    const settingsButton = document.getElementById('open-settings');
+
+    if (singlePlayerButton) {
+        singlePlayerButton.addEventListener('click', () => {
+            console.log("Navigating to Single Player game...");
+            window.location.href = 'game.html'; // Navigate to the main game page
+        });
+    }
+
+    if (multiPlayerButton) {
+        // Button is disabled, no action needed, but could add info tooltip
+        multiPlayerButton.addEventListener('mouseover', () => {
+           // Optional: Show a tooltip explaining it's disabled
+        });
+    }
+
+    if (settingsButton) {
+        settingsButton.addEventListener('click', () => {
+            console.log("Navigating to Settings...");
+            window.location.href = 'settings.html'; // Navigate to the settings page
+        });
+    }
+});
+
+--- FILE: ui/elements.js ---
+// ui/elements.js
+// Caches and exports references to all UI DOM elements.
+
+// Object to hold all element references
+export let uiElements = {};
+
+// Function to grab all necessary DOM elements once
+export function cacheDOMElements() {
+    console.log("UI: Caching DOM elements..."); // Log caching start
+    uiElements = {
+        gameContainer: document.getElementById('game-container'),
+        canvas: document.getElementById('game-canvas'),
+
+        // Top Left Elements
+        dayCounterUI: document.getElementById('day-counter'),
+        timeOfDayUI: document.getElementById('time-of-day'),
+        weatherStatusUI: document.getElementById('weather-status'),
+        cycleTimerUI: document.getElementById('cycle-timer'),
+        messageLogUI: document.getElementById('message-log'),
+
+        // Top Right Elements
+        leaderboardListUI: document.getElementById('leaderboard-list'),
+        treeCountUI: document.getElementById('tree-count'),
+
+        // Bottom Left Elements
+        carbonBar: document.getElementById('carbon-bar'),
+        hydraulicBar: document.getElementById('hydraulic-bar'),
+        carbonValueUI: document.getElementById('carbon-value'),
+        hydraulicValueUI: document.getElementById('hydraulic-value'),
+        seedCounterUI: document.getElementById('seed-counter'),
+
+        // Bottom Bar Controls
+        stomataSlider: document.getElementById('stomata-slider'),
+        stomataValueUI: document.getElementById('stomata-value'),
+        savingsSlider: document.getElementById('savings-slider'),
+        savingsPercentageUI: document.getElementById('savings-percentage'),
+        growthRatioSlider: document.getElementById('growth-ratio-slider'),
+        growthRatioPercentageUI: document.getElementById('growth-ratio-percentage'),
+
+        // Game Over Elements
+        gameOverModal: document.getElementById('game-over-modal'),
+        gameOverReasonUI: document.getElementById('game-over-reason'),
+        finalDayUI: document.getElementById('final-day'),
+        finalSeedsUI: document.getElementById('final-seeds'),
+        restartButton: document.getElementById('restart-button'),
+
+        // Add any other elements referenced elsewhere if needed
+        // (e.g., if specific info spans inside allocation summary were kept)
+    };
+
+     // Verification log
+     let foundCount = 0;
+     let missing = [];
+     for (const key in uiElements) {
+         if (uiElements[key]) {
+             foundCount++;
+         } else {
+             console.warn(`UI element not found: ${key}`);
+             missing.push(key);
+         }
+     }
+     console.log(`UI: Cached ${foundCount} DOM elements. Missing: ${missing.length > 0 ? missing.join(', ') : 'None'}`);
+     // Could add a stricter check here if needed:
+     // if (missing.length > 0) throw new Error("Critical UI elements missing!");
+}
+
+// Note: cacheDOMElements() needs to be called once at startup (e.g., in main.js)
+
+--- FILE: index.html ---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Island Canopy Sim - Welcome</title>
+    <link rel="stylesheet" href="style.css"> <!-- Shared style or create landing.css -->
+    <style>
+        /* Basic Landing Page Specific Styles */
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #2b412b; /* Foresty green background */
+            color: #f0f0f0;
+            font-family: sans-serif;
+            text-align: center;
+        }
+        .landing-container {
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #90ee90; /* Light green */
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        button {
+            padding: 12px 25px;
+            font-size: 1.1em;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #556b2f; /* Dark olive green */
+            color: #f0f0f0;
+            transition: background-color 0.3s ease;
+        }
+        button:hover:not(:disabled) {
+            background-color: #6b8e23; /* Olive drab */
+        }
+        button:disabled {
+            background-color: #4a4a4a;
+            color: #888;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="landing-container">
+        <h1>Forest Royale</h1>
+        <p>Make Good Decisions!</p>
+
+        <div class="button-group">
+            <button id="start-single-player">Single Player</button>
+            <button id="start-multi-player" disabled>Multiplayer (Coming Soon)</button>
+            <button id="open-settings">Settings</button>
+        </div>
+    </div>
+
+    <script src="index.js"></script>
+</body>
+</html>
+
+--- FILE: settings.html ---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Island Canopy Sim - Settings</title>
+    <link rel="stylesheet" href="style.css"> <!-- Shared style or create settings.css -->
+     <style>
+        /* Basic Settings Page Specific Styles */
+         body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #333;
+            color: #f0f0f0;
+            font-family: sans-serif;
+        }
+        .settings-container {
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 30px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px; /* Limit max width */
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+         h2 {
+            text-align: center;
+            color: #ccc;
+            margin-bottom: 25px;
+        }
+        .setting-item {
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap; /* Allow wrapping on small screens */
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #444;
+        }
+        .setting-item label {
+            flex-basis: 120px; /* Fixed width for labels */
+            flex-shrink: 0;
+            font-weight: bold;
+            color: #bbb;
+        }
+        .setting-item input[type="text"],
+        .setting-item input[type="color"] {
+             padding: 8px;
+             border: 1px solid #555;
+             background-color: #444;
+             color: #eee;
+             border-radius: 4px;
+             flex-grow: 1; /* Allow input to take space */
+        }
+         .setting-item input[type="color"] {
+            min-width: 50px; /* Ensure color picker is usable */
+            height: 40px;
+            padding: 2px;
+            flex-grow: 0; /* Don't let color picker grow too much */
+        }
+        .placeholder { /* Style for future feature area */
+            border: 1px dashed #555;
+            padding: 15px;
+            text-align: center;
+            color: #777;
+            font-style: italic;
+            margin-top: 10px;
+            width: 100%; /* Take full width */
+        }
+         .button-group {
+            margin-top: 30px;
+            text-align: center;
+        }
+         button {
+             padding: 10px 20px;
+             font-size: 1em;
+             cursor: pointer;
+             border: none;
+             border-radius: 5px;
+             background-color: #008080; /* Teal */
+             color: #f0f0f0;
+             transition: background-color 0.3s ease;
+         }
+         button:hover {
+             background-color: #009999; /* Darker Teal */
+         }
+    </style>
+</head>
+<body>
+    <div class="settings-container">
+        <h2>Settings</h2>
+
+        <div class="setting-item">
+            <label for="player-name">Player Name:</label>
+            <input type="text" id="player-name" maxlength="16" placeholder="Treebard">
+        </div>
+
+        <div class="setting-item">
+            <label for="leaf-color">Leaf Color:</label>
+            <input type="color" id="leaf-color" value="#228B22">
+        </div>
+
+        <div class="setting-item">
+            <label for="trunk-color">Trunk Color:</label>
+            <input type="color" id="trunk-color" value="#8B4513">
+        </div>
+
+         <div class="setting-item">
+             <label>Canopy Style:</label>
+             <div class="placeholder">
+                 Advanced Customization (Paint / Image Upload) Coming Soon!
+             </div>
+         </div>
+
+
+        <div class="button-group">
+            <button id="save-settings">Save & Back</button>
+        </div>
+
+    </div>
+
+    <script src="settings.js"></script>
+</body>
+</html>
+
+--- FILE: settings.js ---
+document.addEventListener('DOMContentLoaded', () => {
+    const playerNameInput = document.getElementById('player-name');
+    const leafColorInput = document.getElementById('leaf-color');
+    const trunkColorInput = document.getElementById('trunk-color');
+    const saveButton = document.getElementById('save-settings');
+
+    // --- Load existing settings from localStorage ---
+    function loadSettings() {
+        const storedName = localStorage.getItem('playerName');
+        const storedLeafColor = localStorage.getItem('leafColor');
+        const storedTrunkColor = localStorage.getItem('trunkColor');
+
+        if (playerNameInput) {
+            playerNameInput.value = storedName || 'Treebard'; // Use default if not set
+        }
+        if (leafColorInput) {
+            leafColorInput.value = storedLeafColor || '#228B22'; // Default green
+        }
+        if (trunkColorInput) {
+            trunkColorInput.value = storedTrunkColor || '#8B4513'; // Default brown
+        }
+        console.log('Settings loaded from localStorage');
+    }
+
+    // --- Save current settings to localStorage ---
+    function saveSettings() {
+        if (playerNameInput) {
+            localStorage.setItem('playerName', playerNameInput.value || 'Treebard');
+        }
+        if (leafColorInput) {
+            localStorage.setItem('leafColor', leafColorInput.value);
+        }
+        if (trunkColorInput) {
+            localStorage.setItem('trunkColor', trunkColorInput.value);
+        }
+        console.log('Settings saved to localStorage');
+    }
+
+    // --- Event Listener for Save Button ---
+    if (saveButton) {
+        saveButton.addEventListener('click', () => {
+            saveSettings();
+            // Navigate back to the landing page
+            window.location.href = 'index.html';
+        });
+    }
+
+    // --- Initial Load ---
+    loadSettings();
+});
+
+--- FILE: ui/setupListeners.js ---
+// ui/setupListeners.js
+// Sets up all necessary event listeners for UI elements.
+
+// Import the cached UI element references
+import { uiElements } from './elements.js';
+
+// Import handler functions from other modules
+import { handleStomataChange, handleAllocationSliderChange } from './controlsHandlers.js'; // Adjust path if needed
+// Game Over modal is handled separately, but restart is triggered from main
+import { handleRestart } from '../main.js'; // Adjust path to go up one level
+
+/**
+ * Attaches event listeners to the interactive UI elements.
+ * Should be called once after elements are cached.
+ */
+export function setupUIListeners() {
+    console.log("UI: Setting up listeners...");
+
+    // Check essential elements exist before adding listeners
+    const essentialControls = [
+        uiElements.stomataSlider,
+        uiElements.savingsSlider,
+        uiElements.growthRatioSlider,
+        uiElements.restartButton
+    ];
+    if (essentialControls.some(el => !el)) {
+        console.error("Cannot set up UI listeners - one or more essential controls missing!");
+        // Find which one is missing
+        if (!uiElements.stomataSlider) console.error("- Stomata slider missing");
+        if (!uiElements.savingsSlider) console.error("- Savings slider missing");
+        if (!uiElements.growthRatioSlider) console.error("- Growth ratio slider missing");
+        if (!uiElements.restartButton) console.error("- Restart button missing");
+        return;
+    }
+
+    // Control Sliders
+    uiElements.stomataSlider.addEventListener('input', handleStomataChange);
+    uiElements.savingsSlider.addEventListener('input', handleAllocationSliderChange);
+    uiElements.growthRatioSlider.addEventListener('input', handleAllocationSliderChange);
+
+    // Restart Button (on Game Over Modal)
+    uiElements.restartButton.addEventListener('click', handleRestart);
+
+    // Add listeners for any other interactive elements here (e.g., leaderboard expand)
+
+    console.log("UI: Listeners set up.");
+}
+
+--- FILE: ui/gameOver.js ---
+// ui/gameOver.js
+// Handles showing and hiding the Game Over modal UI.
+
+// Import shared game state to read final scores and reason
+import { gameState } from '../gameState.js'; // Adjust path as needed
+// Import UI elements cache
+import { uiElements } from './elements.js';
+// Import tree function needed to visually update tree on game over
+import { setCanopyVisibility } from '../tree.js'; // Adjust path as needed
+
+/**
+ * Displays the Game Over modal, populating it with final stats.
+ * Assumes the gameState.gameOver flag and reason have already been set.
+ */
+export function showGameOverUI() {
+    console.log("UI: showGameOverUI called."); // Log function start
+
+    // Check required elements exist
+    if (!uiElements.gameOverModal) {
+        console.error("UI ERROR: gameOverModal element not found in showGameOverUI!");
+        return;
+    }
+    if (!uiElements.gameOverReasonUI) {
+        console.error("UI ERROR: gameOverReasonUI element not found in showGameOverUI!");
+        // Attempt to continue without the reason text
+    }
+    if (!uiElements.finalDayUI) {
+         console.warn("UI element finalDayUI missing.");
+    }
+     if (!uiElements.finalSeedsUI) {
+         console.warn("UI element finalSeedsUI missing.");
+    }
+
+
+    console.log(`UI: Attempting to display reason: "${gameState.gameOverReason}"`);
+
+    // --- Populate Modal Content ---
+    // Set text content, checking if elements exist first
+    if(uiElements.gameOverReasonUI) {
+        uiElements.gameOverReasonUI.textContent = gameState.gameOverReason;
+        console.log("UI: gameOverReasonUI textContent set.");
+    } else {
+        console.log("UI: gameOverReasonUI element was missing, couldn't set text.");
+    }
+
+    if(uiElements.finalDayUI) {
+        uiElements.finalDayUI.textContent = gameState.day;
+    }
+
+    if(uiElements.finalSeedsUI) {
+        uiElements.finalSeedsUI.textContent = gameState.seedCount;
+    }
+
+    // --- Trigger Visual Changes Associated with Game Over ---
+    // Note: Canopy hiding is logically part of game over, triggered by simulation,
+    // but we ensure it's called here just in case. Best practice is Simulation calls it.
+    setCanopyVisibility(false); // Reads gameState internally now
+
+
+    // --- Show the Modal ---
+    uiElements.gameOverModal.classList.remove('hidden');
+    console.log("UI: Game over modal made visible.");
+}
+
+/**
+ * Hides the Game Over modal. Called by the restart logic.
+ */
+export function hideGameOverModal() {
+    if (uiElements.gameOverModal) {
+        uiElements.gameOverModal.classList.add('hidden');
+        console.log("UI: Game over modal hidden.");
+    } else {
+        console.warn("UI: Tried to hide game over modal, but element not found.");
+    }
+}
+
+--- FILE: ui/messageHandler.js ---
+// ui/messageHandler.js
+// Handles displaying and clearing messages in the UI message log.
+
+// Import the cached UI elements
+import { uiElements } from './elements.js';
+
+/**
+ * Shows a message in the message log area.
+ * @param {string} text - The message text to display.
+ * @param {string} [type='info'] - The type of message ('info', 'warning', 'error') for styling.
+ */
+export function showMessage(text, type = 'info') {
+     if (uiElements.messageLogUI) {
+        uiElements.messageLogUI.textContent = text;
+        // Apply class based on type for CSS styling
+        uiElements.messageLogUI.className = `message ${type}`;
+     } else {
+         // Fallback console log if UI element isn't found
+         console.warn(`Message log UI element not found. Message (${type}): ${text}`);
+     }
+}
+
+/**
+ * Clears the message log area.
+ */
+export function clearMessage() {
+    if (uiElements.messageLogUI) {
+        uiElements.messageLogUI.textContent = '';
+        // Reset class to default
+        uiElements.messageLogUI.className = 'message';
+    }
+}
+
+--- FILE: config.js ---
+// Game Constants & Configuration
+
+export const k_TA_LA_RATIO = 0.01; // Trunk cross-section area / Leaf Area ratio
+export const INITIAL_LEAF_AREA = 5;
+export const INITIAL_TRUNK_HEIGHT = 2;
+export const INITIAL_CARBON = 100;
+export const INITIAL_HYDRAULICS = 100;
+
+export const MAX_CARBON = 200;
+export const MAX_HYDRAULIC = 100;
+
+export const PHOTOSYNTHESIS_RATE_PER_LA = 0.5; // Carbon gain per LA per second at max light & stomata=1
+export const RESPIRATION_RATE_PER_LA = 0.02;   // Carbon loss per LA per second
+export const RESPIRATION_RATE_PER_TRUNK_VOL = 0.01; // Carbon loss per trunk volume per second
+export const TRANSPIRATION_RATE_PER_LA = 0.4; // Water loss rate per LA per sec at stomata=1, normal drought
+export const HYDRAULIC_RECOVERY_RATE = 2;   // Safety gain per second if stomata closed & water available
+export const HYDRAULIC_DAMAGE_THRESHOLD = 20; // Below this, start taking damage
+export const CROWN_DIEBACK_RATE = 0.05;      // Proportion of canopy LA potentially lost per second below threshold
+
+export const GROWTH_COST_PER_LA = 5;        // Carbon cost to add 1 unit of LA (includes implicit trunk cost)
+export const SEED_COST = 1;                 // Carbon cost per seed (Already updated)
+
+export const DAY_DURATION_SECONDS = 20;     // Duration of daytime
+export const NIGHT_DURATION_SECONDS = 8;     // Duration of nighttime (Still exists conceptually, but idle phase skipped)
+
+export const ISLAND_RADIUS = 50;
+export const WATER_LEVEL = 0;
+export const ISLAND_LEVEL = 0.1;
+
+export const DEFAULT_LEAF_COLOR = '#228B22'; // Forest Green
+export const DEFAULT_TRUNK_COLOR = '#8B4513'; // Saddle Brown
+
+// UI Related
+// ++ UPDATED Timer Duration ++
+export const ALLOCATION_TIMER_DURATION = 10; // Seconds for allocation decision (Changed from 7)
+
