@@ -16,21 +16,43 @@ export const PHOTOSYNTHESIS_RATE_PER_LA = 0.5; // Carbon gain per LA per second 
 export const RESPIRATION_RATE_PER_LA = 0.02;   // Carbon loss per LA per second
 export const RESPIRATION_RATE_PER_TRUNK_VOL = 0.01; // Carbon loss per trunk volume per second
 export const TRANSPIRATION_RATE_PER_LA = 0.4; // Water loss rate per LA per sec at stomata=1, normal drought
-export const HYDRAULIC_RECOVERY_RATE = 2;   // Safety gain per second if stomata closed & water available
+export const HYDRAULIC_RECOVERY_RATE = 2;   // Base safety gain per second if stomata closed & water available
 export const HYDRAULIC_DAMAGE_THRESHOLD = 20; // Below this, start taking damage
 export const CROWN_DIEBACK_RATE = 0.05;      // Proportion of canopy LA potentially lost per second below threshold
 
 export const GROWTH_COST_PER_LA = 5;        // Carbon cost to add 1 unit of LA (includes implicit trunk cost)
-export const SEED_COST = 1;                 // Carbon cost per seed (Already updated)
+export const SEED_COST = 1;                 // Carbon cost per seed
 
-// ++ NEW: Canopy Tile Configuration ++
-export const CANOPY_TILE_GRID_SIZE = 10; // e.g., 10x10 grid
-export const CANOPY_TILE_THICKNESS = 0.1; // Thickness of each tile
+// -- REMOVED Sink Limitation Parameters --
+
+// ++ NEW: Time Structure Constants ++
+export const PERIOD_DURATION = 7.0;         // Duration of each daytime weather period (seconds)
+export const NUM_DAY_PERIODS = 3;           // Number of weather periods per day
+export const DAY_TOTAL_DURATION = PERIOD_DURATION * NUM_DAY_PERIODS; // Total duration of all day periods
+export const NIGHT_DURATION = 3.0;          // Duration of nighttime (seconds)
+export const TOTAL_CYCLE_DURATION = DAY_TOTAL_DURATION + NIGHT_DURATION; // Full day-night cycle length
+export const GROWTH_OFFSET_NIGHT = 1.5;     // Time into night when growth allocation occurs (seconds)
+// ++ END NEW ++
+
+// ++ NEW: Weather Probabilities & Effects ++
+export const SUNNY_PROB = 2.0 / 3.0;        // Probability of a period being sunny (vs cloudy)
+export const RAIN_PROB_IF_CLOUDY = 0.5;     // Probability of rain if a period is cloudy
+
+export const LIGHT_MULT_SUNNY = 1.0;        // Photosynthesis multiplier for sunny weather
+export const LIGHT_MULT_CLOUDY = 0.4;       // Photosynthesis multiplier for cloudy weather
+
+export const DROUGHT_MULT_BASE = 1.0;       // Base drought factor (normal conditions)
+export const DROUGHT_VARIATION = 0.4;       // Max +/- variation around the base for random drought factor
+
+export const RAIN_RECOVERY_BONUS_MULT = 3.0; // Multiplier for HYDRAULIC_RECOVERY_RATE during rain
+export const NIGHT_RAIN_HYDRAULIC_BOOST = 20.0; // Absolute hydraulic units added during rainy night (foliar uptake)
 // ++ END NEW ++
 
 
-export const DAY_DURATION_SECONDS = 20;     // Duration of daytime
-export const NIGHT_DURATION_SECONDS = 8;     // Duration of nighttime (Still exists conceptually, but idle phase skipped)
+// Canopy Tile Configuration
+export const CANOPY_TILE_GRID_SIZE = 10;
+export const CANOPY_TILE_THICKNESS = 0.1;
+
 
 export const ISLAND_RADIUS = 50;
 export const WATER_LEVEL = 0;
@@ -39,5 +61,5 @@ export const ISLAND_LEVEL = 0.1;
 export const DEFAULT_LEAF_COLOR = '#228B22'; // Forest Green
 export const DEFAULT_TRUNK_COLOR = '#8B4513'; // Saddle Brown
 
-// UI Related
-export const ALLOCATION_TIMER_DURATION = 10; // Seconds for allocation decision
+// UI Related (Allocation timer removed, now tied to night phase)
+// export const ALLOCATION_TIMER_DURATION = 10;
