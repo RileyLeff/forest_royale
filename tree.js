@@ -16,7 +16,6 @@ function shuffleArray(array) {
 }
 
 // Calculates derived dimensions based on LA and height in gameState
-// Canopy dimensions now represent the *potential* total area
 export function calculateDimensions() {
     const state = gameState;
     const potentialLA = Math.max(0.0001, state.currentLA); // Use currentLA for potential size
@@ -36,22 +35,19 @@ export function createPlayerTree() {
     const state = gameState;
     // --- Cleanup existing tree if any ---
     if (state.treeMeshGroup) {
-        // Dispose geometries and materials associated with the old group
-        disposeTreeGroup(state.treeMeshGroup); // New helper function for this
+        disposeTreeGroup(state.treeMeshGroup);
         if (scene) scene.remove(state.treeMeshGroup);
         state.treeMeshGroup = null;
     }
-    // Ensure module materials are reset if they existed
-    disposeTreeMaterials(); // Disposes module-level material vars
+    disposeTreeMaterials(); // Dispose module-level materials
 
     // --- Initialize Materials ---
-    // Use colors directly from gameState (loaded during init)
     trunkMaterial = new THREE.MeshStandardMaterial({ color: state.trunkColor });
     canopyMaterial = new THREE.MeshStandardMaterial({ color: state.leafColor });
 
     // --- Calculate Initial Dimensions ---
-    // Ensures trunk/canopy width/depth are calculated based on initial LA
     calculateDimensions();
+    const initialCanopyWidth = state.canopyWidth || 0.1; // Store initial width
 
     // --- Create Trunk ---
     const trunkGeometry = new THREE.BoxGeometry(state.trunkWidth || 0.1, state.trunkHeight || 0.1, state.trunkDepth || 0.1);
@@ -63,36 +59,35 @@ export function createPlayerTree() {
 
     // --- Create Tiled Canopy ---
     const canopyGroup = new THREE.Group();
-    canopyGroup.name = "canopyGroup"; // Reference the group
-    const tiles = []; // Array to hold references to tile meshes
+    canopyGroup.name = "canopyGroup";
+    const tiles = [];
     const gridSize = Config.CANOPY_TILE_GRID_SIZE;
     const totalTiles = gridSize * gridSize;
-    const tileWidth = (state.canopyWidth || 0.1) / gridSize;
-    const tileDepth = (state.canopyDepth || 0.1) / gridSize;
+    // Calculate tile size based on *initial* canopy dimensions
+    const tileWidth = initialCanopyWidth / gridSize;
+    const tileDepth = (state.canopyDepth || 0.1) / gridSize; // state.canopyDepth == initialCanopyWidth here
     const tileThickness = Config.CANOPY_TILE_THICKNESS;
 
-    // Create tile geometry once, reuse for all tiles
     const tileGeometry = new THREE.BoxGeometry(tileWidth, tileThickness, tileDepth);
 
     for (let i = 0; i < gridSize; i++) {
         for (let j = 0; j < gridSize; j++) {
-            const tileMesh = new THREE.Mesh(tileGeometry, canopyMaterial); // Use shared material
-            // Calculate position relative to the center of the canopy grid
+            const tileMesh = new THREE.Mesh(tileGeometry, canopyMaterial);
             const xPos = (i - (gridSize - 1) / 2) * tileWidth;
             const zPos = (j - (gridSize - 1) / 2) * tileDepth;
-            tileMesh.position.set(xPos, 0, zPos); // Y position relative to group origin
+            tileMesh.position.set(xPos, 0, zPos);
             tileMesh.castShadow = true;
-            tileMesh.receiveShadow = true; // Tiles can receive shadows from trunk/other things
-            tileMesh.name = `canopyTile_${i}_${j}`; // Optional naming
-
+            tileMesh.receiveShadow = true;
+            tileMesh.name = `canopyTile_${i}_${j}`;
             canopyGroup.add(tileMesh);
-            tiles.push(tileMesh); // Store reference
+            tiles.push(tileMesh);
         }
     }
 
-    // Shuffle the tile array once for more random-looking damage patterns
     shuffleArray(tiles);
-    canopyGroup.userData.tiles = tiles; // Attach the shuffled array to the group
+    canopyGroup.userData.tiles = tiles;
+    // ++ Store initial width for scaling calculation ++
+    canopyGroup.userData.initialWidth = initialCanopyWidth;
 
     // Position the whole canopy group above the trunk
     canopyGroup.position.y = state.trunkHeight + (tileThickness / 2) + Config.ISLAND_LEVEL;
@@ -101,7 +96,7 @@ export function createPlayerTree() {
     state.treeMeshGroup = new THREE.Group();
     state.treeMeshGroup.add(trunkMesh);
     state.treeMeshGroup.add(canopyGroup);
-    state.treeMeshGroup.position.set(0, 0, 0); // Position tree at origin
+    state.treeMeshGroup.position.set(0, 0, 0);
 
     if (scene) {
         scene.add(state.treeMeshGroup);
@@ -110,22 +105,19 @@ export function createPlayerTree() {
     }
 
     // --- Initial Visual Update ---
-    // Apply initial damage state (if any, e.g., on restart with previous damage)
-    updateCanopyTiles(); // Update tile visibility/color
-    // Geometry is set initially, updateTreeGeometry mainly for growth/trunk changes
+    updateCanopyTiles(); // Update tile visibility/color based on potential initial damage
+    updateTreeGeometry(); // Apply initial scale to canopy group
 
-    console.log(`Player tree created/recreated. Tiles: ${totalTiles}, Tile Size: ${tileWidth.toFixed(2)}x${tileDepth.toFixed(2)}`);
+    console.log(`Player tree created/recreated. Tiles: ${totalTiles}, Initial Canopy Width: ${initialCanopyWidth.toFixed(2)}`);
 }
 
-// Applies growth based on carbon investment - Updates trunk geometry and positions canopy group
+// Applies growth - updates trunk geometry, positions canopy group, and scales canopy group
 export function growTree(carbonForGrowth) {
     const state = gameState;
     if (!state.treeMeshGroup || carbonForGrowth <= 0) return;
 
-    const oldHeight = state.trunkHeight; // Store old height for canopy repositioning
-
     // --- Calculate Growth ---
-    const currentTrunkVolume = (state.trunkWidth || 0.1) * (state.trunkDepth || 0.1) * (state.trunkHeight || 0.1); // Use dimensions or fallback
+    const currentTrunkVolume = (state.trunkWidth || 0.1) * (state.trunkDepth || 0.1) * (state.trunkHeight || 0.1);
     const currentBiomassEstimate = Math.max(1, state.currentLA + currentTrunkVolume);
     const biomassToAdd = carbonForGrowth / Config.GROWTH_COST_PER_LA;
     const growthFactor = 1 + (biomassToAdd / currentBiomassEstimate);
@@ -138,13 +130,12 @@ export function growTree(carbonForGrowth) {
     state.effectiveLA = state.currentLA * (1 - state.damagedLAPercentage);
 
     // --- Update 3D Model ---
-    updateTreeGeometry(); // Resize trunk, reposition canopy group
-    // Canopy tile visibility/color is handled by updateCanopyTiles, called separately if damage changes
+    updateTreeGeometry(); // Resize trunk, reposition AND SCALE canopy group
 
-     console.log(`growTree: C_in=${carbonForGrowth.toFixed(1)}, Factor=${growthFactor.toFixed(4)}, LA=${state.currentLA.toFixed(2)}, H=${state.trunkHeight.toFixed(2)}`);
+    console.log(`growTree: C_in=${carbonForGrowth.toFixed(1)}, Factor=${growthFactor.toFixed(4)}, LA=${state.currentLA.toFixed(2)}, H=${state.trunkHeight.toFixed(2)}`);
 }
 
-// Updates the geometry of the trunk and repositions the canopy group
+// Updates the geometry of the trunk and repositions/scales the canopy group
 export function updateTreeGeometry() {
     const state = gameState;
     if (!state.treeMeshGroup) return;
@@ -154,19 +145,25 @@ export function updateTreeGeometry() {
 
     // Update Trunk Geometry & Position
     if (trunkMesh && trunkMesh.geometry) {
-        trunkMesh.geometry.dispose(); // Dispose old geometry!
+        trunkMesh.geometry.dispose();
         trunkMesh.geometry = new THREE.BoxGeometry(state.trunkWidth, state.trunkHeight, state.trunkDepth);
         trunkMesh.position.y = state.trunkHeight / 2 + Config.ISLAND_LEVEL;
     }
 
-    // Reposition Canopy Group based on new trunk height
+    // Reposition and Scale Canopy Group
     if (canopyGroup) {
+        // Reposition based on new trunk height
         canopyGroup.position.y = state.trunkHeight + (Config.CANOPY_TILE_THICKNESS / 2) + Config.ISLAND_LEVEL;
-        // Note: We are NOT resizing individual tiles or the group scale here.
-        // Growth increases *potential* LA, reflected in trunk size.
-        // The visual canopy area change comes from tile visibility via damage.
+
+        // ++ Calculate and apply scale ++
+        const initialWidth = canopyGroup.userData.initialWidth || state.canopyWidth || 1; // Fallback needed?
+        const currentWidth = state.canopyWidth || 0.1;
+        // Calculate scale factor relative to the initial size when tiles were made
+        const scaleFactor = currentWidth / initialWidth;
+        // Scale uniformly in X and Z, keep Y scale at 1 (no stretching thickness)
+        canopyGroup.scale.set(scaleFactor, 1, scaleFactor);
     }
-     // console.log(`Updated geometry: Trunk(${state.trunkWidth.toFixed(2)}x${state.trunkHeight.toFixed(2)})`);
+    // console.log(`Updated geometry: Trunk(${state.trunkWidth.toFixed(2)}x${state.trunkHeight.toFixed(2)}), CanopyScale: ${canopyGroup ? canopyGroup.scale.x.toFixed(2) : 'N/A'}`);
 }
 
 
@@ -187,12 +184,12 @@ export function updateCanopyTiles() {
 
     // Update tile visibility
     for (let i = 0; i < totalTiles; i++) {
-        tiles[i].visible = (i >= hiddenTilesCount); // Tiles at the start of the shuffled list are hidden first
+        tiles[i].visible = (i >= hiddenTilesCount);
     }
 
     // Update color tint of the shared material based on damage
     const baseColor = new THREE.Color(state.leafColor);
-    const brown = new THREE.Color(0x8B4513); // Saddle Brown
+    const brown = new THREE.Color(0x8B4513);
     const damageLerp = Math.max(0, Math.min(1, damagePercent));
     canopyMaterial.color.lerpColors(baseColor, brown, damageLerp);
 
@@ -219,7 +216,6 @@ export function disposeTreeMaterials() {
         trunkMaterial = null;
     }
     if (canopyMaterial) {
-        // Since canopyMaterial is shared by tiles, dispose it here
         canopyMaterial.dispose();
         canopyMaterial = null;
     }
@@ -232,9 +228,7 @@ function disposeTreeGroup(group) {
         if (object.isMesh) {
             if (object.geometry) {
                 object.geometry.dispose();
-                 // console.log(`Disposed geometry for ${object.name || 'unnamed mesh'}`);
             }
-            // Materials are disposed separately via disposeTreeMaterials as they might be shared
         }
     });
      console.log("Disposed geometries in tree group.");
