@@ -6,13 +6,11 @@ export const INITIAL_TRUNK_HEIGHT = 2;
 export const INITIAL_CARBON = 100;
 export const INITIAL_HYDRAULICS = 100; // Starting hydraulic safety value
 
-export const MAX_CARBON = 200;
-// REMOVED: export const MAX_HYDRAULIC = 100; // Static maximum removed
+export const MAX_CARBON = 200; // Maximum carbon storage capacity
 
-// ++ NEW: Hydraulic Buffer Configuration ++
+// Hydraulic Buffer Configuration
 export const BASE_HYDRAULIC = 50; // Base hydraulic safety buffer independent of size
 export const HYDRAULIC_SCALE_PER_LA = 10; // Additional buffer capacity per unit of currentLA
-// ++ END NEW ++
 
 export const PHOTOSYNTHESIS_RATE_PER_LA = 0.5; // Carbon gain per LA per second at max light & stomata=1
 export const RESPIRATION_RATE_PER_LA = 0.02;   // Carbon loss per LA per second
@@ -24,6 +22,11 @@ export const CROWN_DIEBACK_RATE = 0.05;      // Proportion of canopy LA potentia
 
 export const GROWTH_COST_PER_LA = 5;        // Carbon cost to add 1 unit of LA (includes implicit trunk cost)
 export const SEED_COST = 1;                 // Carbon cost per seed (Already updated)
+
+// -- REMOVED Sink Limitation Parameters --
+// export const BASE_GROWTH_SINK_CARBON = 5;
+// export const GROWTH_SINK_SCALE_PER_LA = 0.5;
+// -- END REMOVAL --
 
 export const DAY_DURATION_SECONDS = 20;     // Duration of daytime
 export const NIGHT_DURATION_SECONDS = 8;     // Duration of nighttime (Still exists conceptually, but idle phase skipped)
