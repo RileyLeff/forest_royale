@@ -4,9 +4,10 @@ import { gameState } from './gameState.js';
 import * as Config from './config.js';
 // Need growTree now for allocation step
 import { growTree, updateCanopyVisuals, setCanopyVisibility } from './tree.js';
-// Still need UI functions for messages and game over
-import { showMessage, showGameOverUI, clearMessage } from './ui.js';
-import { sunLight } from './sceneSetup.js'; // Keep for potential visual cycle
+// Import UI functions from specific modules
+import { showMessage, clearMessage } from './ui/messageHandler.js'; // Correct path for messages
+import { showGameOverUI } from './ui/gameOver.js';           // Correct path for game over UI
+import { sunLight } from './sceneSetup.js';                  // Keep for potential visual cycle
 
 // REMOVED startNewDay function export
 
@@ -69,8 +70,10 @@ export function updateSimulation(deltaTime) {
         gameState.damagedLAPercentage = Math.min(1, gameState.damagedLAPercentage + damageIncrease);
         gameState.effectiveLA = gameState.currentLA * (1 - gameState.damagedLAPercentage);
         updateCanopyVisuals(); // Reads gameState directly now
+        // Use the correctly imported showMessage
         showMessage(`Hydraulic stress! Canopy damage! Safety: ${gameState.hydraulicSafety.toFixed(0)}`, 'warning');
     } else {
+         // Use the correctly imported clearMessage
          if (wasStressed) { clearMessage(); }
          if (gameState.damagedLAPercentage === 0) { updateCanopyVisuals(); } // Reads gameState directly
     }
@@ -90,6 +93,7 @@ export function updateSimulation(deltaTime) {
          gameState.timeInCycle -= allocationCycleLength; // Reset timer relative to overshoot
          gameState.allocationAppliedThisCycle = true; // Mark as applied
 
+         // Use the correctly imported clearMessage and showMessage
          clearMessage(); // Clear previous message
          showMessage(`Day ${gameState.day} starting.`); // Show new day message
     } else if (gameState.timeInCycle < allocationCycleLength) {
@@ -130,6 +134,7 @@ function applyAllocation() {
     // Final sanity checks
     if (totalSpent > available + 0.01 || totalSpent < 0) {
         console.error(`SIM ALLOCATION ERROR: Invalid spend calculated (${totalSpent}). Skipping allocation.`);
+        // Use the correctly imported showMessage
         showMessage("Allocation Error!", "error");
     } else {
         // Apply changes to gameState
@@ -151,5 +156,6 @@ function triggerGameOver(reason) {
     gameState.gameOverReason = reason;
     // No need to set isPaused anymore
     setCanopyVisibility(false); // Assumes reads gameState directly
+    // Use the correctly imported showGameOverUI
     showGameOverUI();
 }
