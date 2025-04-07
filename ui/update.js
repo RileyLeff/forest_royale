@@ -18,18 +18,14 @@ export function updateUI() {
 
     // Update Status Bars (Bottom Left)
     if (uiElements.carbonBar) {
-        // Carbon bar still uses static MAX_CARBON
         uiElements.carbonBar.style.width = `${(gameState.carbonStorage / Config.MAX_CARBON) * 100}%`;
     }
     if (uiElements.hydraulicBar) {
-        // ++ MODIFIED: Use dynamic maxHydraulic for percentage calculation ++
-        if (gameState.maxHydraulic > 0) { // Ensure maxHydraulic is positive to avoid division by zero
+        if (gameState.maxHydraulic > 0) {
              uiElements.hydraulicBar.style.width = `${(gameState.hydraulicSafety / gameState.maxHydraulic) * 100}%`;
         } else {
-             // If max is 0 (shouldn't happen after init, but safety check), set width to 0%
              uiElements.hydraulicBar.style.width = '0%';
         }
-        // ++ END MODIFICATION ++
     }
     if (uiElements.carbonValueUI) {
         uiElements.carbonValueUI.textContent = Math.floor(gameState.carbonStorage);
@@ -46,27 +42,64 @@ export function updateUI() {
         uiElements.dayCounterUI.textContent = gameState.day;
     }
     if (uiElements.timeOfDayUI) {
-        // Update based on visual cycle state if kept
-        uiElements.timeOfDayUI.textContent = gameState.timeOfDay.charAt(0).toUpperCase() + gameState.timeOfDay.slice(1);
+        // ++ MODIFIED: Use isNight and currentPeriodIndex instead of timeOfDay ++
+        let timeText = '';
+        if (gameState.isNight) {
+            timeText = 'Night';
+        } else if (gameState.currentPeriodIndex >= 0) {
+            // Display Day Period number (1-based for user display)
+            timeText = `Day Period ${gameState.currentPeriodIndex + 1}`;
+        } else {
+            timeText = 'Starting...'; // Initial state before first period starts
+        }
+        uiElements.timeOfDayUI.textContent = timeText;
+        // ++ END MODIFICATION ++
     }
-    // Update Cycle Timer (Top Left) - showing time left until next allocation/day increment
-    const allocationCycleLength = Config.DAY_DURATION_SECONDS;
-    const timeSinceLastCycleStart = gameState.timeInCycle % allocationCycleLength;
-    const timeLeftInCycle = Math.max(0, allocationCycleLength - timeSinceLastCycleStart);
-    if (uiElements.cycleTimerUI) {
-        uiElements.cycleTimerUI.textContent = Math.floor(timeLeftInCycle);
-    }
-    if (uiElements.weatherStatusUI) {
-        // Example weather display based on drought factor
-        uiElements.weatherStatusUI.textContent = gameState.droughtFactor > 1.2 ? "Dry" : gameState.droughtFactor < 0.8 ? "Wet" : "Clear";
+    // Update Cycle Timer (Top Left) - showing time left until next *full cycle* repeats (Day 1 -> Day 2)
+    // OR maybe time left in current period/night? Let's do time left in period/night phase.
+    let timeLeft = 0;
+    if (gameState.isNight) {
+        const timeIntoNight = gameState.timeInCycle - Config.DAY_TOTAL_DURATION;
+        timeLeft = Config.NIGHT_DURATION - timeIntoNight;
+    } else if (gameState.currentPeriodIndex >= 0) {
+        const timeIntoPeriod = gameState.timeInCycle - (gameState.currentPeriodIndex * Config.PERIOD_DURATION);
+        timeLeft = Config.PERIOD_DURATION - timeIntoPeriod;
+    } else {
+        timeLeft = Config.PERIOD_DURATION - gameState.timeInCycle; // Time left in first period
     }
 
-    // Update Controls (Bottom Bar) - Ensure they reflect current game state
-    // Primarily needed for initialization/restart, user input normally syncs these
+    if (uiElements.cycleTimerUI) {
+        uiElements.cycleTimerUI.textContent = Math.max(0, Math.floor(timeLeft)); // Ensure non-negative
+    }
+
+    // Update Weather Status UI (using new state vars)
+    if (uiElements.weatherStatusUI) {
+        let weatherText = '';
+        if (gameState.currentPeriodIndex === -1 && !gameState.isNight) {
+            weatherText = 'Initializing...'; // Before first period weather is generated
+        } else {
+            // Determine light condition text
+            if(gameState.isNight) {
+                weatherText = 'Night';
+            } else {
+                 weatherText = (gameState.currentLightMultiplier === Config.LIGHT_MULT_SUNNY) ? 'Sunny' : 'Cloudy';
+            }
+            // Add rain status
+            if (gameState.isRaining) {
+                weatherText += ', Raining';
+            }
+            // Add drought status (example interpretation)
+            if (gameState.currentDroughtFactor > Config.DROUGHT_MULT_BASE + Config.DROUGHT_VARIATION * 0.6) {
+                weatherText += ' (Dry)';
+            } else if (gameState.currentDroughtFactor < Config.DROUGHT_MULT_BASE - Config.DROUGHT_VARIATION * 0.6) {
+                weatherText += ' (Wet)';
+            }
+        }
+        uiElements.weatherStatusUI.textContent = weatherText;
+    }
+
+    // Update Controls (Bottom Bar)
     if (uiElements.stomataSlider) {
-        // Only update if the value differs significantly, prevent overriding user input mid-drag?
-        // Or maybe simpler: just ensure it reflects state if not actively focused?
-        // For now, let's update if different - might cause slight jump after drag end
         if (parseFloat(uiElements.stomataSlider.value) !== gameState.stomatalConductance) {
             uiElements.stomataSlider.value = gameState.stomatalConductance;
         }
@@ -74,8 +107,6 @@ export function updateUI() {
     if (uiElements.stomataValueUI) {
         uiElements.stomataValueUI.textContent = `${Math.round(gameState.stomatalConductance * 100)}%`;
     }
-
-    // Update Allocation Sliders and their percentage displays
     if (uiElements.savingsSlider) {
         if (parseInt(uiElements.savingsSlider.value) !== gameState.lastSavingsPercent) {
              uiElements.savingsSlider.value = gameState.lastSavingsPercent;
@@ -84,7 +115,6 @@ export function updateUI() {
      if (uiElements.savingsPercentageUI) {
         uiElements.savingsPercentageUI.textContent = `${gameState.lastSavingsPercent}%`;
      }
-
     if (uiElements.growthRatioSlider) {
         if (parseInt(uiElements.growthRatioSlider.value) !== gameState.lastGrowthRatioPercent) {
             uiElements.growthRatioSlider.value = gameState.lastGrowthRatioPercent;
@@ -96,12 +126,11 @@ export function updateUI() {
      }
 
 
-    // Update Leaderboard (Top Right - Basic for SP)
+    // Update Leaderboard (Top Right)
      if (uiElements.leaderboardListUI) {
          uiElements.leaderboardListUI.innerHTML = `<li>${gameState.playerName || 'Player'}: ${gameState.seedCount} Seeds</li>`;
      }
      if (uiElements.treeCountUI) {
-         // Assuming '1' active tree unless game over
          uiElements.treeCountUI.textContent = gameState.gameOver ? 0 : 1;
      }
 }
