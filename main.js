@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import { gameState, initializeGameState } from './gameState.js';
 import * as Config from './config.js'; // Import config if needed directly
 import { initScene, renderer, camera, controls, scene } from './sceneSetup.js';
-// Import necessary tree functions for initialization and restart
-import { createPlayerTree, calculateDimensions, disposeTreeMaterials } from './tree.js';
+// Import necessary tree functions - updated list
+import { createPlayerTree, calculateDimensions, disposeTreeMaterials, updateTreeGeometry, updateCanopyTiles } from './tree.js';
 
-// ++ Import functions from specific UI modules ++
+// Import functions from specific UI modules
 import { cacheDOMElements } from './ui/elements.js';
 import { setupUIListeners } from './ui/setupListeners.js';
 import { updateUI } from './ui/update.js';
@@ -23,84 +23,57 @@ let animationFrameId = null; // To potentially stop/restart the loop
 function initializeApp() {
     console.log("Initializing Island Canopy Sim Game...");
 
-    // Set up DOM element references first (from ui/elements.js)
     cacheDOMElements();
 
-    // Set up Three.js scene, camera, renderer, controls, environment
-    const canvas = document.getElementById('game-canvas'); // Still need canvas ref here
+    const canvas = document.getElementById('game-canvas');
     if (!canvas) {
         console.error("Canvas element #game-canvas not found!");
         return;
     }
     initScene(canvas);
 
-    // Initialize game state (loads settings)
-    initializeGameState();
+    initializeGameState(); // Creates gameState object
 
-    // Calculate initial dimensions based on the freshly initialized state
-    calculateDimensions(); // Reads gameState directly now
+    // createPlayerTree reads gameState, calculates dimensions, creates meshes,
+    // and calls initial visual updates (updateCanopyTiles)
+    createPlayerTree();
 
-    // Create the initial player tree visuals using the state
-    createPlayerTree(); // Reads gameState directly now
-
-    // Reset camera target *after* tree exists and has dimensions
+    // Reset camera target *after* tree exists
      if (controls) {
-        // Use default height from Config if gameState hasn't updated yet
         const targetY = (gameState.trunkHeight || Config.INITIAL_TRUNK_HEIGHT) / 2;
         controls.target.set(0, targetY, 0);
-        controls.update(); // Apply immediately
+        controls.update();
      } else {
          console.warn("OrbitControls not available to set target.");
      }
 
-    // Set up UI event listeners (from ui/setupListeners.js)
     setupUIListeners();
-
-    // Perform initial UI update (from ui/update.js)
-    updateUI();
-    // Clear message log (from ui/messageHandler.js)
+    updateUI(); // Initial UI state
     clearMessage();
-
-    // Start the main game loop
     startGameLoop();
 
     console.log("Game Initialization complete. Starting game loop.");
 }
 
 // --- Main Game Loop ---
-// ++ Ensure this function is fully defined ++
 function gameLoop() {
-    // Request the next frame
     animationFrameId = requestAnimationFrame(gameLoop);
-
-    // Get time delta for simulation updates
     const deltaTime = clock.getDelta();
 
-    // Log current state *before* updateSimulation (Optional, can be noisy)
-    // console.log(`MAIN: Loop - Day ${gameState.day}, ${gameState.timeOfDay}, GameOver:${gameState.gameOver}, TimeInCycle:${gameState.timeInCycle.toFixed(1)}`);
+    // Core Loop Logic
+    updateSimulation(deltaTime); // Updates state, calls growTree/updateCanopyTiles if needed
 
-
-    // --- Core Loop Logic ---
-    // 1. Update Simulation (handles game logic, physics, time progression, periodic allocation)
-    //    It internally checks if game over.
-    updateSimulation(deltaTime);
-
-    // 2. Update UI (reflects changes in state onto the screen)
-    //    Only update if the game isn't over.
     if (!gameState.gameOver) {
-        updateUI(); // From ui/update.js
+        updateUI(); // Updates DOM based on gameState
     }
 
-    // 3. Update Camera Controls (allows damping etc. to work)
     if (controls) {
-        controls.update();
+        controls.update(); // Updates camera damping etc.
     }
 
-    // 4. Render Scene
     if (renderer && scene && camera) {
-        renderer.render(scene, camera);
+        renderer.render(scene, camera); // Renders the frame
     } else {
-        // Critical components missing, stop the loop to prevent errors
         console.error("Render components missing in game loop!");
         if (animationFrameId !== null) {
             cancelAnimationFrame(animationFrameId);
@@ -110,47 +83,48 @@ function gameLoop() {
 }
 
 // Helper to start/restart the game loop
-// ++ Ensure this function is fully defined ++
 function startGameLoop() {
-    // Make sure any previous loop is stopped before starting a new one
     if (animationFrameId !== null) {
         cancelAnimationFrame(animationFrameId);
     }
-    clock = new THREE.Clock(); // Reset clock for accurate delta time
-    gameLoop(); // Start the loop
-    console.log("MAIN: Game loop started/restarted."); // Add log
+    clock = new THREE.Clock(); // Reset clock
+    gameLoop();
+    console.log("MAIN: Game loop started/restarted.");
 }
 
 
 // --- Exported Restart Handler ---
-// This function is called by the button listener in ui/setupListeners.js
 export function handleRestart() {
     console.log("MAIN: Handling Restart Request...");
 
-    // Hide the Game Over modal (from ui/gameOver.js)
     hideGameOverModal();
 
     // Clean up old Three.js resources
+    // createPlayerTree now handles cleanup internally via disposeTreeGroup/disposeTreeMaterials
+    // We still need to remove the top-level group from the scene here.
     if (gameState.treeMeshGroup) {
-         if(scene) scene.remove(gameState.treeMeshGroup);
-         else console.warn("MAIN: Scene not found during tree cleanup.");
-         disposeTreeMaterials();
+         if(scene) {
+             scene.remove(gameState.treeMeshGroup);
+             // Call dispose helpers manually *before* nulling the reference
+             // disposeTreeGroup(gameState.treeMeshGroup); // createPlayerTree does this now
+             disposeTreeMaterials(); // Dispose module materials
+        } else {
+            console.warn("MAIN: Scene not found during tree cleanup.");
+            disposeTreeMaterials(); // Still attempt material cleanup
+        }
          gameState.treeMeshGroup = null;
     } else {
         console.log("MAIN: No old tree mesh group found to remove.");
-        disposeTreeMaterials();
+        disposeTreeMaterials(); // Ensure materials are cleared even if no group existed
     }
 
+
     // Reset game state logic
-    initializeGameState();
+    initializeGameState(); // Re-initializes state vars, including colors
     console.log("MAIN: Game state initialized.");
 
-    // Calculate dimensions
-    calculateDimensions(); // Reads gameState directly
-    console.log("MAIN: Dimensions calculated.");
-
-    // Create new tree visuals
-    createPlayerTree(); // Reads gameState directly
+    // Recreate Tree (reads new state, creates meshes/tiles, does initial visual setup)
+    createPlayerTree();
     console.log("MAIN: New player tree created.");
 
     // Reset camera target
@@ -163,16 +137,14 @@ export function handleRestart() {
 
     // Reset UI display elements
     updateUI();
-    // Clear message log
     clearMessage();
 
-    // Ensure simulation loop is running and flags are correct
-    startGameLoop(); // Ensure loop is running after reset
+    // Ensure simulation loop is running
+    startGameLoop(); // Restart the loop
 
     console.log("MAIN: Game Restarted successfully.");
 }
 
 
 // --- Start Application ---
-// This script (main.js) is loaded by game.html
 document.addEventListener('DOMContentLoaded', initializeApp);

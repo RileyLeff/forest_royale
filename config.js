@@ -23,10 +23,11 @@ export const CROWN_DIEBACK_RATE = 0.05;      // Proportion of canopy LA potentia
 export const GROWTH_COST_PER_LA = 5;        // Carbon cost to add 1 unit of LA (includes implicit trunk cost)
 export const SEED_COST = 1;                 // Carbon cost per seed (Already updated)
 
-// -- REMOVED Sink Limitation Parameters --
-// export const BASE_GROWTH_SINK_CARBON = 5;
-// export const GROWTH_SINK_SCALE_PER_LA = 0.5;
-// -- END REMOVAL --
+// ++ NEW: Canopy Tile Configuration ++
+export const CANOPY_TILE_GRID_SIZE = 10; // e.g., 10x10 grid
+export const CANOPY_TILE_THICKNESS = 0.1; // Thickness of each tile
+// ++ END NEW ++
+
 
 export const DAY_DURATION_SECONDS = 20;     // Duration of daytime
 export const NIGHT_DURATION_SECONDS = 8;     // Duration of nighttime (Still exists conceptually, but idle phase skipped)
