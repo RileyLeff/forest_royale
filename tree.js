@@ -77,8 +77,13 @@ export function growTree(carbonForGrowth) {
     const biomassToAdd = carbonForGrowth / Config.GROWTH_COST_PER_LA;
     const growthFactor = 1 + (biomassToAdd / currentBiomassEstimate);
 
+    console.log(`growTree details: C_in=${carbonForGrowth.toFixed(1)}, biomass+=${biomassToAdd.toFixed(2)}, factor=${growthFactor.toFixed(4)}, oldLA=${state.currentLA.toFixed(2)}, oldH=${state.trunkHeight.toFixed(2)}`);
+
     state.currentLA *= growthFactor;
     state.trunkHeight *= growthFactor;
+
+    // ++ Log new state values ++
+    console.log(`growTree new state: newLA=${state.currentLA.toFixed(2)}, newH=${state.trunkHeight.toFixed(2)}`);
 
     // ++ NEW: Recalculate max hydraulic buffer based on new size ++
     state.maxHydraulic = Config.BASE_HYDRAULIC + Config.HYDRAULIC_SCALE_PER_LA * state.currentLA;
@@ -90,6 +95,10 @@ export function growTree(carbonForGrowth) {
 
     const trunkMesh = state.treeMeshGroup.getObjectByName("trunk");
     const canopyMesh = state.treeMeshGroup.getObjectByName("canopy");
+
+    // ++ Log before geometry update ++
+    console.log('growTree: Updating geometry...');
+
     if (trunkMesh) {
         trunkMesh.geometry.dispose();
         trunkMesh.geometry = new THREE.BoxGeometry(state.trunkWidth, state.trunkHeight, state.trunkDepth);
@@ -101,6 +110,9 @@ export function growTree(carbonForGrowth) {
         canopyMesh.geometry = new THREE.BoxGeometry(state.canopyWidth, canopyThickness, state.canopyDepth);
         canopyMesh.position.y = state.trunkHeight + canopyThickness / 2 + Config.ISLAND_LEVEL;
     }
+
+    // ++ Log after geometry update ++
+    console.log('growTree: Geometry updated.');
 }
 
 // Updates the canopy color based on damage percentage and base leaf color

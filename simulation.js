@@ -131,7 +131,7 @@ function applyAllocation() {
 
     const totalSpent = actualCarbonForGrowth + actualCarbonForSeeds;
 
-    console.log(`SIM Applying Allocation: Available=${available}, Spend=${totalSpent}, Growth=${actualCarbonForGrowth}, Seeds=${seedsToMake}`);
+    console.log(`SIM Applying Allocation: Available=${available}, Spend=${totalSpent}, GrowthCarbon=${actualCarbonForGrowth}, Seeds=${seedsToMake}`); // New line
 
     // Final sanity checks
     if (totalSpent > available + 0.01 || totalSpent < 0) {
@@ -152,6 +152,7 @@ function applyAllocation() {
 
 // --- Game Over Logic ---
 function triggerGameOver(reason) {
+    console.log(`triggerGameOver called. Reason: "${reason}", Current gameOver state: ${gameState.gameOver}`);
     if (gameState.gameOver) return;
     console.log("Game Over:", reason);
     gameState.gameOver = true;
