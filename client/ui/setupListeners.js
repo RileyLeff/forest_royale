@@ -2,19 +2,9 @@
 import { uiElements } from './elements.js';
 import { handleStomataChange, handleAllocationSliderChange } from './controlsHandlers.js';
 // Import ONLY the socket instance from the shared module
-import { socket } from '../socket.js'; // Path was already updated
-// REMOVE handleRestart from main.js import, as it's handled in gameOver.js now
-// import { handleRestart } from '../main.js'; // DELETE OR COMMENT OUT THIS LINE if it was separate
-// OR modify the import from socket.js if handleRestart was mistakenly added there (unlikely)
+import { socket } from '../socket.js'; // <<< ENSURE THIS IS THE ONLY SOCKET IMPORT
 
-// If handleRestart was imported alongside socket previously from main.js, modify the line like this:
-// import { handleRestart, socket } from '../main.js'; // <<< OLD LINE
-import { socket } from '../socket.js';             // <<< CORRECTED LINE (assuming handleRestart was only needed for main.js import)
-// Also check if handleRestart was accidentally imported from '../main.js' on a separate line and remove it.
-
-// We still might need handleRestart IF setupUIListeners attached it directly, but it doesn't seem to.
-// Let's re-import it from gameOver.js ONLY IF needed here (it's not)
-// import { handleRestart } from './gameOver.js'; // Not needed here
+// Remove any other imports that might have included 'socket' from '../main.js'
 
 /**
  * Attaches event listeners to the interactive UI elements.
@@ -40,9 +30,6 @@ export function setupUIListeners() {
     }
 
     // The restart button listener is attached in gameOver.js, no need here.
-    // if (uiElements.restartButton) {
-    //     // uiElements.restartButton.addEventListener('click', handleRestart); // Don't add listener here
-    // }
 
     if (uiElements.startCountdownButton) {
         uiElements.startCountdownButton.addEventListener('click', () => {
