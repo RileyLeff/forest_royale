@@ -1,31 +1,38 @@
-// ui/controlsHandlers.js
-// Contains event handler functions for user controls (sliders).
-
-// Import the shared game state
-import { gameState } from '../gameState.js'; // Adjust path to go up one level
-// Import the cached UI elements
+// client/ui/controlsHandlers.js
 import { uiElements } from './elements.js';
+// Import the socket instance from main.js
+import { socket } from '../main.js';
+// We no longer directly modify gameState here
+// import { gameState } from '../gameState.js';
 
 /**
  * Handles changes to the Stomata Slider input.
- * Updates the game state and the UI display for stomata %.
+ * Updates the UI display and sends the new value to the server.
  * @param {Event} e - The input event object.
  */
 export function handleStomataChange(e) {
-    // Update game state immediately
-    gameState.stomatalConductance = parseFloat(e.target.value);
-    // Update UI display immediately
+    const newValue = parseFloat(e.target.value);
+
+    // Update UI display immediately for responsiveness
     if (uiElements.stomataValueUI) {
-        uiElements.stomataValueUI.textContent = `${Math.round(gameState.stomatalConductance * 100)}%`;
-    } else {
-        console.warn("Stomata value UI element missing in handler.");
+        uiElements.stomataValueUI.textContent = `${Math.round(newValue * 100)}%`;
     }
+
+    // --- Send update to server ---
+    if (socket && socket.connected) {
+        // console.log(`UI->Server: Emitting updateStomata: ${newValue}`); // Debug log
+        socket.emit('updateStomata', { value: newValue });
+    } else {
+        console.warn("Socket not connected, cannot send stomata update.");
+    }
+
+    // --- REMOVE direct gameState modification ---
+    // gameState.stomatalConductance = newValue;
 }
 
 /**
  * Handles changes to EITHER the Savings or Growth Ratio sliders.
- * Updates the relevant percentage display and immediately updates
- * the corresponding last known allocation state in gameState.
+ * Updates the UI display and sends the new allocation intent to the server.
  */
 export function handleAllocationSliderChange() {
     // Check required elements exist
@@ -42,16 +49,20 @@ export function handleAllocationSliderChange() {
     // Update percentage displays immediately
     uiElements.savingsPercentageUI.textContent = `${savingsPercent}%`;
     const seedRatioPercent = 100 - growthRatioPercent;
-    uiElements.growthRatioPercentageUI.textContent = `${growthRatioPercent}%/${seedRatioPercent}%`; // Short format
+    uiElements.growthRatioPercentageUI.textContent = `${growthRatioPercent}%/${seedRatioPercent}%`;
 
-    // Update gameState immediately so the simulation uses the latest values
-    // when it performs the periodic allocation.
-    gameState.lastSavingsPercent = savingsPercent;
-    gameState.lastGrowthRatioPercent = growthRatioPercent;
+    // --- Send update to server ---
+    if (socket && socket.connected) {
+         // console.log(`UI->Server: Emitting updateAllocation: Savings=${savingsPercent}, GrowthRatio=${growthRatioPercent}`); // Debug log
+         socket.emit('updateAllocation', {
+             savings: savingsPercent,
+             growthRatio: growthRatioPercent
+         });
+    } else {
+         console.warn("Socket not connected, cannot send allocation update.");
+    }
 
-    // Optional: Log the change
-    // console.log(`UI Handler: Updated Allocation State - Savings: ${savingsPercent}%, Growth Ratio: ${growthRatioPercent}%`);
-
-    // No need to update the allocation *preview* text here anymore,
-    // as the allocation happens periodically based on these stored values.
+    // --- REMOVE direct gameState modification ---
+    // gameState.lastSavingsPercent = savingsPercent;
+    // gameState.lastGrowthRatioPercent = growthRatioPercent;
 }
