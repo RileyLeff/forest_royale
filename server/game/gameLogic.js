@@ -2,8 +2,10 @@
 import { getGlobalState, getAllPlayers, setGamePhase, resetGlobalStateValues, updateGlobalState, getPlayerState } from './GameState.js';
 // Import simulation control functions and main server start function
 import { stopSimulation, startGame as triggerServerStartGame } from '../server.js';
+// Import broadcaster
+import { broadcastGameState } from '../network/stateBroadcaster.js';
 
-const COUNTDOWN_DURATION = 30; // Seconds for the lobby countdown
+const COUNTDOWN_DURATION = 5; // Seconds for the lobby countdown (shortened for testing)
 let countdownInterval = null; // Interval ID for the countdown timer
 
 /**
@@ -13,7 +15,7 @@ let countdownInterval = null; // Interval ID for the countdown timer
 export function startLobbyCountdown(io) {
     const globalState = getGlobalState();
     if (globalState.gamePhase !== 'lobby' || countdownInterval) {
-        console.log("GameLogic: Cannot start countdown, not in lobby phase or countdown already running.");
+        console.log("GameLogic: Cannot start countdown, incorrect phase or already running.");
         return;
     }
     if (Object.keys(getAllPlayers()).length === 0) {
@@ -22,45 +24,53 @@ export function startLobbyCountdown(io) {
     }
 
     console.log(`GameLogic: Starting ${COUNTDOWN_DURATION} second countdown...`);
-    setGamePhase('countdown');
-    updateGlobalState({ countdownTimer: COUNTDOWN_DURATION }); // Set initial time
+    setGamePhase('countdown'); // Set phase first
+    updateGlobalState({ countdownTimer: COUNTDOWN_DURATION }); // Then set timer value
 
-    // Broadcast immediate state change
-    broadcastGameState(io, getAllPlayers(), globalState); // Use broadcaster
+    // Broadcast immediately so clients see 'countdown' phase and initial timer value
+    broadcastGameState(io, getAllPlayers(), getGlobalState());
 
     countdownInterval = setInterval(() => {
-        const currentTimer = getGlobalState().countdownTimer;
-        if (currentTimer === null) { // Should not happen, but safety check
-            console.warn("GameLogic: Countdown timer is null during interval.");
-            cancelLobbyCountdown();
+        // We read the state directly inside the interval now
+        const currentState = getGlobalState();
+
+        // Exit checks
+        if (currentState.gamePhase !== 'countdown' || currentState.countdownTimer === null) {
+            console.warn("GameLogic: Countdown interval running but phase/timer invalid. Cancelling.");
+            cancelLobbyCountdown(); // Also calls updateGlobalState({ countdownTimer: null })
             return;
         }
+        if (Object.keys(getAllPlayers()).length === 0) {
+             console.log("GameLogic: Countdown interval running but no players left. Cancelling.");
+             cancelLobbyCountdown();
+             setGamePhase('lobby'); // Go back to lobby if empty
+             return;
+        }
 
-        const newTime = currentTimer - 1;
-        updateGlobalState({ countdownTimer: newTime });
 
-        // Broadcast state update frequently during countdown
-        // broadcastGameState(io, getAllPlayers(), getGlobalState()); // Included in main loop broadcast now
+        const newTime = currentState.countdownTimer - 1;
+        updateGlobalState({ countdownTimer: newTime }); // Update state only
+        // Main server loop (runGameTick) will broadcast this updated timer
 
         if (newTime <= 0) {
-            console.log("GameLogic: Countdown finished. Starting game.");
-            cancelLobbyCountdown(); // Clear interval
-            triggerServerStartGame(); // Call the main start function from server.js
+            console.log("GameLogic: Countdown finished. Triggering game start.");
+            // Important: cancelLobbyCountdown clears the interval AND sets timer to null
+            cancelLobbyCountdown();
+            triggerServerStartGame(); // Trigger the actual game start in server.js
         }
     }, 1000); // Update every second
 }
 
 /**
- * Cancels the lobby countdown if it's running.
+ * Cancels the lobby countdown if it's running. Also clears timer value in state.
  */
 export function cancelLobbyCountdown() {
     if (countdownInterval) {
-        console.log("GameLogic: Cancelling lobby countdown.");
+        console.log("GameLogic: Cancelling lobby countdown interval.");
         clearInterval(countdownInterval);
         countdownInterval = null;
-        updateGlobalState({ countdownTimer: null }); // Clear timer value
-        // Optionally set phase back to lobby if needed, depends on calling context
-        // setGamePhase('lobby');
+        // Clear timer value in global state
+        updateGlobalState({ countdownTimer: null });
     }
 }
 
@@ -106,11 +116,8 @@ export function endGame(io, players, globalState) {
  */
 export function resetGame() {
     console.log("GameLogic: Resetting game state...");
-    cancelLobbyCountdown(); // Ensure countdown is stopped
+    cancelLobbyCountdown(); // Ensure countdown is stopped and timer cleared
     stopSimulation(); // Ensure main simulation is stopped
     resetGlobalStateValues(); // Reset time, weather, phase to 'lobby'
     console.log("GameLogic: Game reset complete.");
 }
-
-// Need to import broadcastGameState from stateBroadcaster to use it here
-import { broadcastGameState } from '../network/stateBroadcaster.js';

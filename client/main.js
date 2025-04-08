@@ -1,4 +1,4 @@
-// main.js
+// client/main.js
 
 import * as THREE from 'three';
 // Import SPECIFIC functions/objects from gameState
@@ -22,6 +22,7 @@ import { updateEnvironmentVisuals, updateRain, setWeatherTargets, startRain, sto
 let clock = new THREE.Clock();
 let animationFrameId = null;
 let socket = null; // Holds the socket connection
+// let previousPhase = null; // Optional: For logging phase changes
 
 // --- Initialization Function ---
 function initializeApp() {
@@ -47,10 +48,6 @@ function initializeApp() {
     // Initial UI state (will be quickly overridden by server)
     updateUI();
     clearMessage();
-
-    // Don't create local tree or start game loop until connected and state received
-    // createPlayerTree(); // REMOVED - Tree creation driven by server state
-    // startGameLoop(); // REMOVED - Started after first state received
 
     console.log("Client Initialization complete. Waiting for server connection...");
 }
@@ -88,7 +85,8 @@ function setupSocketListeners() {
 
     // --- Game State Update Handler ---
     socket.on('gameStateUpdate', (serverState) => {
-        // console.log("Received gameStateUpdate:", serverState); // DEBUG - Can be very noisy
+        // +++ Add temporary log to see received phase +++
+        // console.log("Received update. Server phase:", serverState.gamePhase, "Timer:", serverState.countdownTimer);
 
         // --- Update Local Game State Cache ---
         gameState.day = serverState.day;
@@ -98,10 +96,13 @@ function setupSocketListeners() {
         gameState.currentLightMultiplier = serverState.currentLightMultiplier;
         gameState.currentDroughtFactor = serverState.currentDroughtFactor;
         gameState.isRaining = serverState.isRaining;
+        // +++ Ensure these assignments happen on EVERY update +++
         gameState.gamePhase = serverState.gamePhase;
+        gameState.countdownTimer = serverState.countdownTimer;
+        // +++ End Ensure +++
         gameState.serverTime = serverState.serverTime;
-        // Store player data - overwrite existing players, add new ones
-        gameState.players = serverState.players;
+        gameState.players = serverState.players; // Overwrite players object
+
 
         // --- First Time Setup ---
         if (!gameState.initialStateReceived) {
@@ -110,8 +111,10 @@ function setupSocketListeners() {
             const myInitialState = getMyPlayerState();
             if (myInitialState && controls) {
                 const initialHeight = myInitialState.trunkHeight || Config.INITIAL_TRUNK_HEIGHT;
-                controls.target.set(0, initialHeight / 2, 0); // Default target for now
-                // TODO: Target player's actual spawn position once available
+                // Position camera target based on spawn point if available
+                const targetX = myInitialState.spawnPoint?.x ?? 0;
+                const targetZ = myInitialState.spawnPoint?.z ?? 0;
+                controls.target.set(targetX, initialHeight / 2, targetZ);
                 controls.update();
             } else if (!myInitialState) {
                  console.warn("My player state not found in first update!");
@@ -121,14 +124,21 @@ function setupSocketListeners() {
              updateEnvironmentVisuals(1000); // Force instant update
              if(gameState.isRaining) startRain(); else stopRain(); // Set initial rain state
 
-
             gameState.initialStateReceived = true;
             startGameLoop(); // Start the rendering loop NOW
+            // This message ONLY shows on first update and shows the INITIAL phase received
             showMessage(`Game state received. Phase: ${gameState.gamePhase}`, 'info');
         }
+        // else { // Optional logging for phase changes after initial load
+        //      if (gameState.gamePhase !== previousPhase) {
+        //          console.log(`Client phase updated to: ${gameState.gamePhase}`);
+        //          showMessage(`Phase: ${gameState.gamePhase}`, 'info'); // Update message log
+        //          previousPhase = gameState.gamePhase;
+        //      }
+        // }
+
 
         // --- Update Environment Targets (for smooth transitions) ---
-        // We might need to track previous rain state to only call start/stop on change
         const wasRaining = scene?.getObjectByName("rain")?.visible ?? false; // Check current rain visibility
         setWeatherTargets(gameState.isNight, gameState.currentLightMultiplier < Config.LIGHT_MULT_SUNNY - 0.1, gameState.isRaining);
         if (gameState.isRaining && !wasRaining) {
@@ -155,8 +165,16 @@ function setupSocketListeners() {
         const myState = getMyPlayerState();
         if (myState && myState.isAlive && controls && gameState.playerTrees.has(gameState.myId)) {
              const myTreeGroup = gameState.playerTrees.get(gameState.myId);
-             // Simple target: center of tree base + half height
-             controls.target.lerp(new THREE.Vector3(myTreeGroup.position.x, myState.trunkHeight / 2 + myTreeGroup.position.y, myTreeGroup.position.z), 0.1);
+             // Lerp towards the base position + half height
+             const targetPos = new THREE.Vector3(
+                 myTreeGroup.position.x,
+                 myState.trunkHeight / 2 + (Config.ISLAND_LEVEL || 0), // Add base level offset
+                 myTreeGroup.position.z
+                );
+             if (!controls.target.equals(targetPos)){ // Avoid lerping if already there
+                  controls.target.lerp(targetPos, 0.1);
+             }
+
         }
 
     }); // End of gameStateUpdate handler
@@ -165,7 +183,6 @@ function setupSocketListeners() {
      socket.on('playerDisconnected', (playerId) => {
          console.log(`Player ${playerId} disconnected.`);
          removeTree(playerId); // Remove visual representation
-         // No need to delete from gameState.players, next gameStateUpdate won't include them
      });
 
      // --- Game Over Handler ---
@@ -174,10 +191,9 @@ function setupSocketListeners() {
          gameState.gameOver = true;
          gameState.gameOverReason = data.reason || "The game has ended!";
          gameState.winnerId = data.winnerId; // Store winner ID
-         stopGameLoop(); // Stop rendering loop? Or let it run for game over screen? TBD
+         // Consider stopping loop or leaving it for final view
+         // stopGameLoop();
          showGameOverUI(); // Update UI to show modal
-         // Make all trees non-interactive / visually distinct?
-         // Set canopy visibility is handled by createOrUpdateTree based on isAlive
      });
 
 } // End of setupSocketListeners
@@ -197,9 +213,9 @@ function gameLoop() {
     updateRain(deltaTime);
 
     // 4. Update UI (Reads from local gameState cache, updated by server)
-    if (!gameState.gameOver) { // Check local game over flag
-        updateUI();
-    }
+    // UI update should happen even if game is over to show final state/modal correctly
+    updateUI();
+
 
     // 5. Update Camera Controls
     if (controls) {
@@ -223,6 +239,7 @@ function startGameLoop() {
     }
     console.log("MAIN: Starting client render loop.");
     clock = new THREE.Clock(); // Reset clock
+    // previousPhase = gameState.gamePhase; // Initialize for phase change logging
     gameLoop();
 }
 
@@ -237,7 +254,7 @@ function stopGameLoop() {
 
 // --- Exported Restart Handler (Needs full rethink for multiplayer) ---
 export function handleRestart() {
-    console.warn("MAIN: handleRestart() called - Needs full rework for multiplayer!");
+    console.warn("MAIN: handleRestart() called - Current behavior reloads page.");
     // Simplest 'restart' is reload, takes player back to landing page
     window.location.href = '/'; // Navigate to root
 }
