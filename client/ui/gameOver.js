@@ -1,8 +1,21 @@
 // client/ui/gameOver.js
 import { gameState, getMyPlayerState } from '../gameState.js';
 import { uiElements } from './elements.js';
-// Import restart handler for the player button
-import { handleRestart } from '../main.js';
+// Import the socket instance from the new dedicated module
+import { socket } from '../socket.js'; // <<< ADD socket import
+
+// --- Define handleRestart locally ---
+function handleRestart() {
+    console.log("UI: Restart button clicked, navigating to /");
+    if (socket && socket.connected) {
+       console.log("UI: Disconnecting socket before restart...");
+       socket.disconnect();
+    }
+    // Use a small delay to allow socket disconnect message to potentially send/process
+    setTimeout(() => {
+        window.location.href = '/';
+    }, 100); // 100ms delay
+}
 
 /** Displays the Game Over modal. */
 export function showGameOverUI() {
@@ -54,8 +67,8 @@ export function showGameOverUI() {
         uiElements.restartButton.style.display = showPlayerStats ? 'inline-block' : 'none';
         if (showPlayerStats) {
             // Attach listener (remove first to prevent duplicates if modal shown multiple times)
-            uiElements.restartButton.removeEventListener('click', handleRestart);
-            uiElements.restartButton.addEventListener('click', handleRestart);
+            uiElements.restartButton.removeEventListener('click', handleRestart); // Use the local handleRestart
+            uiElements.restartButton.addEventListener('click', handleRestart); // Use the local handleRestart
         }
     }
     // Admin View: Show 'Close'

@@ -1,9 +1,9 @@
 // client/ui/messageHandler.js
 import { uiElements } from './elements.js';
-// Import socket reference - it might be null initially
-import { socket } from '../main.js';
+// Import socket reference from the new dedicated module
+import { socket } from '../socket.js'; // <<< UPDATED PATH
 
-let listenerAttached = false; // Module-level flag
+let listenerAttached = false; // Module-level flag to prevent attaching multiple times
 
 /** Shows a message in the message log area. */
 export function showMessage(text, type = 'info') {
@@ -11,7 +11,7 @@ export function showMessage(text, type = 'info') {
         uiElements.messageLogUI.textContent = text;
         uiElements.messageLogUI.className = `message ${type}`;
      } else {
-         // console.warn(`Msg Log UI not found. (${type}): ${text}`); // Reduce noise
+         // console.warn(`Msg Log UI not found. (${type}): ${text}`);
      }
 }
 
@@ -24,14 +24,20 @@ export function clearMessage() {
 }
 
 /**
- * Attaches the listener for the 'serverMessage' event.
- * Should be called once the socket connection is established.
+ * Attaches the listener for the 'serverMessage' event to the shared socket.
+ * Should be called once the socket connection is logically established
+ * (e.g., after connect event and initial handshake/auth).
  */
 export function attachServerMessageListener() {
     // Prevent attaching multiple times and ensure socket exists
-    if (!socket || listenerAttached) {
-        if(listenerAttached) console.log("Message Handler: Listener already attached.");
-        if(!socket) console.warn("Message Handler: attach called but socket is not ready.");
+    if (listenerAttached) {
+        // console.log("Message Handler: Listener already attached."); // Reduce noise
+        return;
+    }
+    // The socket import itself might fail if socket.js has issues,
+    // but we assume socket.js handles that. Here we check if the imported socket looks valid.
+    if (!socket || typeof socket.on !== 'function') {
+        console.warn("Message Handler: attach called but socket is not ready or invalid.");
         return;
     }
 
@@ -44,5 +50,11 @@ export function attachServerMessageListener() {
     console.log("Message Handler: Server message listener attached.");
 }
 
-// --- DO NOT CALL setup automatically on load ---
-// setupServerMessageListener(); // REMOVED - Call attachServerMessageListener from main.js instead
+// Call this function externally (from main.js/admin.js) after connection setup
+// export function detachServerMessageListener() { // Optional: if needed for cleanup
+//    if (listenerAttached && socket) {
+//        socket.off('serverMessage'); // Remove specific listener if possible
+//        listenerAttached = false;
+//        console.log("Message Handler: Server message listener detached.");
+//    }
+// }

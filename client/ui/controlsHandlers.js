@@ -1,9 +1,8 @@
 // client/ui/controlsHandlers.js
 import { uiElements } from './elements.js';
-// Import the socket instance from main.js
-import { socket } from '../main.js';
+// Import the socket instance from the new dedicated module
+import { socket } from '../socket.js'; // <<< UPDATED PATH
 // We no longer directly modify gameState here
-// import { gameState } from '../gameState.js';
 
 /**
  * Handles changes to the Stomata Slider input.
@@ -25,9 +24,6 @@ export function handleStomataChange(e) {
     } else {
         console.warn("Socket not connected, cannot send stomata update.");
     }
-
-    // --- REMOVE direct gameState modification ---
-    // gameState.stomatalConductance = newValue;
 }
 
 /**
@@ -61,8 +57,4 @@ export function handleAllocationSliderChange() {
     } else {
          console.warn("Socket not connected, cannot send allocation update.");
     }
-
-    // --- REMOVE direct gameState modification ---
-    // gameState.lastSavingsPercent = savingsPercent;
-    // gameState.lastGrowthRatioPercent = growthRatioPercent;
 }

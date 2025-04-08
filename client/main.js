@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'; // Keep if OrbitControls is used here
+import { socket } from './socket.js'; // <<< Import from new module
 import { gameState, loadClientSettings, getMyPlayerState } from './gameState.js';
 import * as Config from './config.js';
 import { initScene, renderer, camera, controls, scene } from './sceneSetup.js';
@@ -13,20 +14,19 @@ import { updateEnvironmentVisuals, updateRain, setWeatherTargets, startRain, sto
 
 
 // --- Global Variables ---
-// Keep these accessible if needed by imported functions like handleRestart, socket export
 let clock = new THREE.Clock();
 let animationFrameId = null;
-let socket = null; // Keep socket global for export
+// let socket = null; // <<< REMOVE: No longer defined here
 let raycaster = new THREE.Raycaster();
 let mouse = new THREE.Vector2();
 let islandMesh = null;
 let spawnMarkers = new Map();
 let tempSpawnMarker = null;
+let messageListenerAttached = false; // Module-level flag for message listener
 
 
 // --- Initialization Function ---
 function initializeApp() {
-    // This log should now ONLY appear when game.html is loaded
     console.log("*********************************************");
     console.log("*** main.js initializeApp() Starting... ***");
     console.log("*********************************************");
@@ -66,20 +66,13 @@ function initializeApp() {
          console.warn("Back button UI element not found during init.");
     }
 
-    console.log("Attempting to connect to server...");
-    // Create socket instance here, so it's available for export
-    console.log("[main.js] About to call io() constructor..."); // <<< ADD LOG
-    socket = io({
-         reconnection: true, // Enable default reconnection
-         reconnectionAttempts: 5,
-         reconnectionDelay: 1000,
-    });
-    console.log("[main.js] io() constructor called. Socket ID (initially):", socket?.id || 'N/A'); // <<< ADD LOG (Use optional chaining)
+    // Socket is already connecting via socket.js
+    console.log("main.js: Socket connection managed by socket.js. Setting up listeners.");
 
-    setupSocketListeners(intent); // Pass intent
+    setupSocketListeners(intent); // Pass intent (listeners will attach to the imported socket)
     setupUIListeners(); // Sets up listeners for game controls etc.
     updateUI(); clearMessage();
-    console.log("Client Initialization complete. Waiting for server connection...");
+    console.log("Client Initialization complete.");
 }
 
 // --- Spawn Selection Click Handler ---
@@ -163,32 +156,48 @@ function removeAllSpawnMarkers() {
 }
 
 // --- Socket Event Listener Setup ---
-function setupSocketListeners(intent) { // Accept intent
+function setupSocketListeners(intent) { // Socket is already defined via import
+    // Listen for 'connect' event from the shared socket
     socket.on('connect', () => {
-        gameState.myId = socket.id;
-        console.log(`Connected to server with ID: ${gameState.myId}`);
-        showMessage(`Connected! Joining as ${intent}...`, 'info');
-        // Retrieve settings to send with join request
-        const playerName = localStorage.getItem('playerName') || `Tree_${socket.id.substring(0, 4)}`;
-        const leafColor = localStorage.getItem('leafColor') || Config.DEFAULT_LEAF_COLOR;
-        const trunkColor = localStorage.getItem('trunkColor') || Config.DEFAULT_TRUNK_COLOR;
+         // Check if we already sent the join request for this connection instance
+         // (socket.id should be populated by the time 'connect' fires)
+         if (socket.id && socket.id !== gameState.myId) { // Only join if ID changed or is new
+             gameState.myId = socket.id; // Update local ID
+             console.log(`main.js: Socket connected with ID: ${gameState.myId}. Sending join request (Intent: ${intent})...`);
+             showMessage(`Connected! Joining as ${intent}...`, 'info');
+             // Retrieve settings to send with join request
+             const playerName = localStorage.getItem('playerName') || `Tree_${socket.id.substring(0, 4)}`;
+             const leafColor = localStorage.getItem('leafColor') || Config.DEFAULT_LEAF_COLOR;
+             const trunkColor = localStorage.getItem('trunkColor') || Config.DEFAULT_TRUNK_COLOR;
 
-        socket.emit('playerJoinRequest', {
-            intent: intent,
-            playerName: playerName,
-            leafColor: leafColor,
-            trunkColor: trunkColor
-         });
-        sessionStorage.removeItem('gameModeIntent'); // Clean up intent storage
+             socket.emit('playerJoinRequest', {
+                 intent: intent,
+                 playerName: playerName,
+                 leafColor: leafColor,
+                 trunkColor: trunkColor
+              });
+             sessionStorage.removeItem('gameModeIntent'); // Clean up intent storage
 
-        attachServerMessageListener(); // Moved here previously
-
+             // Attach the message listener *once* per logical connection attempt
+             if (!messageListenerAttached) {
+                 console.log("main.js: Attaching server message listener.");
+                 attachServerMessageListener();
+                 messageListenerAttached = true; // Set flag
+             }
+         } else if (!socket.id) {
+              console.warn("main.js: 'connect' event fired but socket.id is still null?");
+         } else {
+              // Already connected with this ID, no need to send join request again
+              console.log(`main.js: Socket already connected with ID ${socket.id}.`);
+         }
     });
 
+    // Keep the other listeners ('disconnect', 'connect_error', 'gameStateUpdate', etc.)
     socket.on('disconnect', (reason) => {
-        console.log(`Disconnected: ${reason}`);
+        console.log(`main.js: Disconnected: ${reason}`);
         showMessage("Disconnected!", "error");
-        gameState.myId = null;
+        gameState.myId = null; // Clear ID
+        messageListenerAttached = false; // Allow re-attaching message listener on next connect
         gameState.initialStateReceived = false;
         gameState.isSpectator = false; // Reset spectator status on disconnect
         gameState.gameOver = false; // Reset game over state
@@ -198,10 +207,13 @@ function setupSocketListeners(intent) { // Accept intent
         removeAllSpawnMarkers();
         updateUI(); // Update UI to reflect disconnected state
     });
-    socket.on('connect_error', (error) => {
-        console.error('Connection Error:', error);
-        showMessage("Connection failed!", "error");
-    });
+
+    // connect_error listener is now in socket.js, no need to duplicate here unless
+    // you need specific UI updates *only* for the main game page on connection error.
+    // socket.on('connect_error', (error) => {
+    //     console.error('main.js: Connection Error:', error);
+    //     showMessage("Connection failed!", "error");
+    // });
 
     // --- Game State Update Handler ---
     socket.on('gameStateUpdate', (serverState) => {
@@ -329,10 +341,9 @@ function setupSocketListeners(intent) { // Accept intent
         removeAllSpawnMarkers();
         showGameOverUI(); // Update UI immediately
     });
-     socket.on('serverMessage', (data) => {
-         console.log("Received server message:", data);
-         showMessage(data.text, data.type || 'info');
-     });
+
+    // serverMessage listener is attached via attachServerMessageListener now
+    // socket.on('serverMessage', (data) => { ... });
 
 } // End of setupSocketListeners
 
@@ -360,21 +371,12 @@ function stopGameLoop() {
         console.log("MAIN: Stopped client render loop.");
     }
 }
-// handleRestart is now primarily used by the GameOver modal 'Play Again' button
-export function handleRestart() {
-     console.log("Restart button clicked, navigating to /");
-     if (socket && socket.connected) {
-        socket.disconnect();
-     }
-     window.location.href = '/';
-}
 
-// --- Export socket for other modules ---
-export { socket };
+// --- handleRestart function was REMOVED from here ---
+
 
 // --- Conditional Initialization ---
-// Check if the current script URL matches the expected entry point URL
-// This prevents initializeApp from running when main.js is just imported as a module
+// Keep this check to ensure initializeApp only runs when main.js is the entry script
 const mainScriptUrl = new URL('/main.js', window.location.origin).href;
 if (import.meta.url === mainScriptUrl) {
     console.log("main.js detected as entry point script. Adding DOMContentLoaded listener.");
