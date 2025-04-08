@@ -10,7 +10,13 @@ export function setupUIListeners() {
     console.log("UI: Setting up listeners...");
 
     // Check required elements using optional chaining for safety
-    if (!uiElements.stomataSlider || !uiElements.savingsSlider || !uiElements.growthRatioSlider || !uiElements.restartButton || !uiElements.startCountdownButton) {
+    // Ensure all elements used below are checked here
+    if (!uiElements.stomataSlider ||
+        !uiElements.savingsSlider ||
+        !uiElements.growthRatioSlider ||
+        !uiElements.restartButton ||
+        !uiElements.startCountdownButton) // Added check
+    {
         console.error("Cannot set up UI listeners - one or more essential controls missing!");
         if (!uiElements.stomataSlider) console.error("- Stomata slider missing");
         if (!uiElements.savingsSlider) console.error("- Savings slider missing");
@@ -19,6 +25,7 @@ export function setupUIListeners() {
         if (!uiElements.startCountdownButton) console.error("- Start Countdown button missing");
         return;
     }
+
 
     // Control Sliders
     uiElements.stomataSlider.addEventListener('input', handleStomataChange);
@@ -30,12 +37,16 @@ export function setupUIListeners() {
 
     // Start Countdown Button
     uiElements.startCountdownButton.addEventListener('click', () => {
-        console.log("UI: Start Countdown button clicked.");
+        console.log("UI: Start Countdown button clicked."); // <<< Log 1
         if (socket && socket.connected) {
+             // +++ Add more detailed log before emitting +++
+             console.log(`UI: Emitting 'requestStartCountdown' via socket ${socket.id}. Connected: ${socket.connected}`); // <<< Log 2
              socket.emit('requestStartCountdown'); // Send event to server
         } else {
-            console.error("UI: Cannot start countdown, socket not connected.");
+            // +++ Log the socket object for inspection +++
+            console.error("UI: Cannot start countdown, socket invalid or not connected.", { socket_exists: !!socket, connected: socket?.connected }); // <<< Log 3 (with more info)
             // Maybe show an error message to the user
+            alert("Error: Not connected to server. Cannot start countdown.");
         }
     });
 
