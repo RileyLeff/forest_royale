@@ -12,7 +12,7 @@ import { updateSimulationTick } from './game/simulation.js';
 import { broadcastGameState, getFullGameStateSnapshot } from './network/stateBroadcaster.js';
 // Import state getters/setters needed here
 import { getGlobalState, getAllPlayers, setGamePhase, getPlayerState } from './game/GameState.js';
-import { resetGame } from './game/gameLogic.js'; // Import resetGame
+import { resetGame, cancelLobbyCountdown } from './game/gameLogic.js'; // Import resetGame & cancelLobbyCountdown
 import * as Config from './config.js'; // Import server config for startGame
 
 // --- Configuration & Setup ---
@@ -97,78 +97,96 @@ function runGameTick() {
  */
 export function startGame() {
     const globalState = getGlobalState();
-    const players = getAllPlayers();
+    let players = getAllPlayers(); // Get latest player list
 
     // --- Phase Check & Set ---
-    // Allow starting from 'lobby', 'countdown', or if already 'playing'
+    const wasCountdown = globalState.gamePhase === 'countdown';
+    if (wasCountdown) {
+        cancelLobbyCountdown(); // Ensure countdown interval is stopped if we came from countdown
+    }
+
     if (!['lobby', 'countdown', 'playing'].includes(globalState.gamePhase)) {
         console.warn(`Server: startGame called with invalid phase: ${globalState.gamePhase}. Aborting.`);
         return;
     }
-    // Ensure phase is set to 'playing'
-    if (globalState.gamePhase !== 'playing') {
-         console.log(`Server: startGame - Setting phase to 'playing' (was ${globalState.gamePhase}).`);
-         setGamePhase('playing');
-    } else {
-        console.log("Server: startGame called when already playing (ensuring loop runs).");
-    }
+
+    console.log(`Server: startGame - Setting phase to 'playing' (was ${globalState.gamePhase}).`);
+    setGamePhase('playing'); // Set phase definitively
 
     // --- Prepare Players ---
-    let playersToStartCount = 0;
-    let activePlayersFound = false; // Track if we find anyone to actually start
-    Object.values(players).forEach(p => {
-        const playerState = getPlayerState(p.id); // Get potentially updated state
-        if (playerState) {
-            if (playerState.isSpectator) { // Skip spectators
-                playerState.isAlive = false; return;
-            }
-            activePlayersFound = true; // Found at least one non-spectator
+    let activePlayersFound = false; // Track if we find anyone to actually start playing
+    let playersMarkedAliveCount = 0;
 
-            // Assign spawn ONLY if they haven't chosen AND game wasn't already playing
-            if (!playerState.hasChosenSpawn && globalState.gamePhase !== 'playing') { // Condition modified slightly, maybe not needed if logic ensures phase is now 'playing'? Let's keep for safety on first start.
-                 console.warn(`Server: Player ${p.id} starting without chosen spawn! Assigning default offset.`);
-                 const activePlayersList = Object.values(players).filter(pl => !pl.isSpectator);
-                 const index = activePlayersList.findIndex(ap => ap.id === p.id);
-                 const activePlayerCount = activePlayersList.length || 1;
-                 const angle = (index / activePlayerCount) * Math.PI * 2; const radius = 5 + Math.random() * 5;
-                 const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
-                 playerState.spawnPoint = { x: radius * Math.cos(angle), y: baseHeight, z: radius * Math.sin(angle) };
-                 playerState.hasChosenSpawn = true;
-             } else if (!playerState.spawnPoint) {
-                 // Safety: If somehow spawnPoint is missing even if chosen, assign default
-                 console.error(`Server: Player ${p.id} missing spawnPoint in startGame! Assigning default.`);
-                  const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
-                  playerState.spawnPoint = { x: 0, y: baseHeight, z: 0 }; // Fallback to center
-             }
+    // Refetch players just in case state changed during phase set? Unlikely but safe.
+    players = getAllPlayers();
 
-             // Mark player alive
-             if (!playerState.isAlive) { playerState.isAlive = true; console.log(`Server: Marking player ${p.id} alive in startGame.`); }
-             console.log(`Server: Player ${p.id} ready/starting at spawn: (${p.spawnPoint?.x?.toFixed(1)}, ${p.spawnPoint?.z?.toFixed(1)})`);
-             playersToStartCount++;
+    Object.values(players).forEach(playerState => {
+        // *** CRITICAL: Skip spectators and admins entirely ***
+        if (playerState.isSpectator) {
+            playerState.isAlive = false; // Ensure spectators are marked dead
+            console.log(`Server/startGame: Skipping spectator/admin ${playerState.id}.`);
+            return; // Move to next player
         }
+
+        // If we reach here, it's a potential active player
+        activePlayersFound = true;
+
+        // Assign spawn ONLY if they haven't chosen one yet
+        if (!playerState.hasChosenSpawn) {
+             console.warn(`Server/startGame: Player ${playerState.id} starting without chosen spawn! Assigning default offset.`);
+             // Use a deterministic but varied approach based on existing players
+             const activePlayersList = Object.values(players).filter(pl => !pl.isSpectator);
+             const index = activePlayersList.findIndex(ap => ap.id === playerState.id);
+             const activePlayerCount = activePlayersList.length || 1; // Avoid division by zero
+             const angle = (index / activePlayerCount) * Math.PI * 2 + Math.random()*0.1; // Add slight randomness
+             const radius = 5 + Math.random() * 5;
+             const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
+             playerState.spawnPoint = { x: radius * Math.cos(angle), y: baseHeight, z: radius * Math.sin(angle) };
+             playerState.hasChosenSpawn = true; // Mark as chosen now
+         } else if (!playerState.spawnPoint) {
+             // Safety: If somehow spawnPoint is missing even if chosen, assign default
+             console.error(`Server/startGame: Player ${playerState.id} missing spawnPoint but hasChosenSpawn=true! Assigning default.`);
+              const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
+              playerState.spawnPoint = { x: 0, y: baseHeight, z: 0 }; // Fallback to center
+         }
+
+         // Mark player alive if they aren't already
+         // This handles players joining lobby -> countdown -> playing
+         if (!playerState.isAlive) {
+             playerState.isAlive = true;
+             console.log(`Server/startGame: Marking player ${playerState.id} alive.`);
+             playersMarkedAliveCount++;
+         } else {
+              console.log(`Server/startGame: Player ${playerState.id} was already alive.`);
+              playersMarkedAliveCount++; // Still counts as an active player starting
+         }
+
+         // Reset per-cycle flags
+         playerState.growthAppliedThisCycle = false;
+         playerState.foliarUptakeAppliedThisNight = false;
+
+         console.log(`Server/startGame: Player ${playerState.id} ready/starting at spawn: (${playerState.spawnPoint?.x?.toFixed(1)}, ${playerState.spawnPoint?.z?.toFixed(1)})`);
     });
 
     // --- Validation & Simulation Start ---
-    if (!activePlayersFound && Object.keys(players).length > 0) { // If only spectators were connected
-        console.log("Server: startGame - Only spectators present. Resetting to lobby.");
-        resetGame(); return;
-    }
-    if (playersToStartCount === 0 && activePlayersFound) { // If active players exist but none ended up marked alive?
-         console.error("Server: startGame - Active players found, but none started? Resetting.");
-         resetGame(); return;
+    if (!activePlayersFound) {
+        console.log("Server/startGame: No active (non-spectator) players found. Resetting to lobby.");
+        resetGame(); // This sets phase to lobby and broadcasts
+        return; // Stop startGame execution
     }
 
     // Start the interval ONLY if it's not already running
     if (!simulationInterval) {
-        console.log(`Server: Starting simulation loop interval for ${playersToStartCount} active players.`);
+        console.log(`Server: Starting simulation loop interval for ${playersMarkedAliveCount} active players.`);
         lastTickTime = Date.now();
         simulationInterval = setInterval(runGameTick, TICK_INTERVAL_MS);
     } else {
         console.log("Server: Simulation loop already running.");
     }
 
-    // Broadcast the state immediately after setup
-    broadcastGameState(io, players, getGlobalState());
+    // Broadcast the 'playing' state immediately after setup
+    // Need latest state as player isAlive/spawnPoint might have changed
+    broadcastGameState(io, getAllPlayers(), getGlobalState());
 }
 
 
