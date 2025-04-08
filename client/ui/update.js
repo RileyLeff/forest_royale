@@ -13,27 +13,35 @@ export function updateUI() {
 
     const myState = getMyPlayerState();
     const phase = gameState.gamePhase;
-    const allConnections = gameState.players; // Get all connections
-    const playersOnly = Object.values(allConnections).filter(p => !p.isSpectator); // Filter out spectators
-    const playerCount = playersOnly.length; // Count only actual players
-    const aliveCount = playersOnly.filter(p => p.isAlive).length; // Count alive among players
+    const allConnections = gameState.players || {}; // Use empty object if players doesn't exist yet
     const isSpectator = gameState.isSpectator; // Use the flag from client gameState
 
+    // +++ Consistent Player/Spectator Filtering +++
+    const allPlayerArray = Object.values(allConnections);
+    // Filter for actual players (non-spectators)
+    const activePlayers = allPlayerArray.filter(p => p && !p.isSpectator);
+    // Count total connections (including spectators/admins)
+    const totalConnectionsCount = allPlayerArray.length;
+    // Count active players
+    const activePlayerCount = activePlayers.length;
+    // Count alive among active players
+    const alivePlayerCount = activePlayers.filter(p => p.isAlive).length;
+
+
     // --- Update Status Bars (Bottom Left) ---
-    // Hide if spectator
-    if (uiElements.bottomLeftStatus) {
+    if (uiElements.bottomLeftStatus) { // Check element exists before accessing style
         uiElements.bottomLeftStatus.style.display = isSpectator ? 'none' : 'block';
     }
-    if (!isSpectator && gameState.initialStateReceived) { // Only update values if not spectator AND state received
-        const carbon = myState?.carbonStorage ?? 0; const maxCarbon = Config.MAX_CARBON;
-        const hydraulics = myState?.hydraulicSafety ?? 0; const maxHydraulics = myState?.maxHydraulic ?? Config.BASE_HYDRAULIC;
-        const seeds = myState?.seedCount ?? 0;
+    if (!isSpectator && gameState.initialStateReceived && myState) { // Ensure myState exists too
+        const carbon = myState.carbonStorage ?? 0; const maxCarbon = Config.MAX_CARBON;
+        const hydraulics = myState.hydraulicSafety ?? 0; const maxHydraulics = myState.maxHydraulic ?? Config.BASE_HYDRAULIC;
+        const seeds = myState.seedCount ?? 0;
         if (uiElements.carbonBar) uiElements.carbonBar.style.width = `${(carbon / maxCarbon) * 100}%`;
         if (uiElements.hydraulicBar) uiElements.hydraulicBar.style.width = maxHydraulics > 0 ? `${(hydraulics / maxHydraulics) * 100}%` : '0%';
         if (uiElements.carbonValueUI) uiElements.carbonValueUI.textContent = Math.floor(carbon);
         if (uiElements.hydraulicValueUI) uiElements.hydraulicValueUI.textContent = Math.floor(hydraulics);
         if (uiElements.seedCounterUI) uiElements.seedCounterUI.textContent = seeds;
-    } else if (!isSpectator) {
+    } else if (!isSpectator && uiElements.bottomLeftStatus) { // Only reset if panel exists
          // Show default '--' if not spectator but state not ready
         if (uiElements.carbonValueUI) uiElements.carbonValueUI.textContent = '--';
         if (uiElements.hydraulicValueUI) uiElements.hydraulicValueUI.textContent = '--';
@@ -66,7 +74,8 @@ export function updateUI() {
         uiElements.lobbyInfoPanel.style.display = showLobbyPanel ? 'block' : 'none';
 
         if (showLobbyPanel) {
-            if (uiElements.lobbyPlayerCountUI) uiElements.lobbyPlayerCountUI.textContent = Object.keys(allConnections).length; // Show total connections in lobby
+            // +++ Use totalConnectionsCount for Lobby Player Count +++
+            if (uiElements.lobbyPlayerCountUI) uiElements.lobbyPlayerCountUI.textContent = totalConnectionsCount;
 
             // Control visibility of lobby instruction
             if (uiElements.lobbyInstructionUI) {
@@ -75,10 +84,9 @@ export function updateUI() {
 
             if (uiElements.startCountdownButton) { uiElements.startCountdownButton.disabled = (phase === 'countdown'); uiElements.startCountdownButton.textContent = (phase === 'countdown') ? 'Countdown...' : 'Start Countdown'; }
 
-            // --- Countdown Timer Display ---
+            // Countdown Timer Display
             if (uiElements.countdownTimerDisplayUI) {
                 if (phase === 'countdown' && gameState.countdownTimer !== null && gameState.countdownTimer >= 0) { // Check >= 0
-                    // +++ Add Debug Log +++
                     // console.log(`UI Update: Countdown phase, timer value: ${gameState.countdownTimer}`);
                     uiElements.countdownTimerDisplayUI.textContent = `Starting in: ${gameState.countdownTimer}s`;
                     uiElements.countdownTimerDisplayUI.style.display = 'block';
@@ -99,45 +107,63 @@ export function updateUI() {
 
     // --- Update Leaderboard / Player List (Top Right) ---
     if (uiElements.leaderboardTitleUI) {
-         // Show total connections in lobby title, show active player count otherwise
-         if (phase === 'lobby' || phase === 'countdown') uiElements.leaderboardTitleUI.textContent = `Lobby (${Object.keys(allConnections).length})`;
-         else uiElements.leaderboardTitleUI.textContent = `Leaderboard (${aliveCount}/${playerCount})`; // Show Alive/Total Players
+         // +++ Use totalConnectionsCount for Lobby title, use activePlayerCount for game title +++
+         if (phase === 'lobby' || phase === 'countdown') uiElements.leaderboardTitleUI.textContent = `Lobby (${totalConnectionsCount})`;
+         else uiElements.leaderboardTitleUI.textContent = `Leaderboard (${alivePlayerCount}/${activePlayerCount})`; // Show Alive/Total Active Players
      }
     if (uiElements.leaderboardListUI) {
         let listHTML = '';
-        // Filter out spectators BEFORE sorting and rendering the list
-        const playersToDisplay = Object.values(allConnections).filter(p => !p.isSpectator);
+        // +++ Use the pre-filtered activePlayers list +++
+        const playersToDisplay = [...activePlayers]; // Create a mutable copy for sorting
 
         // Sort the filtered players
         playersToDisplay.sort((a, b) => {
             if (phase === 'lobby' || phase === 'countdown') {
-                 return (a?.playerName || '').localeCompare(b?.playerName || ''); // Sort lobby alphabetically
-            } else {
-                return (b?.seedCount ?? 0) - (a?.seedCount ?? 0); // Sort game by seeds
+                 // Should not be sorting active players in lobby? This list should show spectators too in lobby?
+                 // Let's adjust: Sort ALL connections for lobby/countdown display
+                 const allSorted = [...allPlayerArray].sort((a, b) => (a?.playerName || '').localeCompare(b?.playerName || ''));
+                 listHTML = ''; // Reset listHTML
+                 allSorted.forEach(player => {
+                    const isMe = player.id === gameState.myId;
+                    let status = '';
+                    if (player.isSpectator) {
+                         status = player.playerName.startsWith('ADMIN_') ? ' (Admin)' : ' (Spectator)';
+                    } else {
+                         status = player.hasChosenSpawn ? ' (Placed)' : '';
+                    }
+                    const name = player.playerName || `Player ${player.id.substring(0,4)}`;
+                    listHTML += `<li${isMe ? ' style="font-weight: bold;"' : ''}>${name}${status}</li>`;
+                 });
+
+            } else { // Playing or Ended phase - sort active players by seeds
+                playersToDisplay.sort((a, b) => (b?.seedCount ?? 0) - (a?.seedCount ?? 0));
+                // Generate HTML only for active players
+                 playersToDisplay.forEach(player => {
+                    const isMe = player.id === gameState.myId;
+                    let status = player.isAlive ? '' : ' (Dead)'; // Should always be active player here
+                    const name = player.playerName || `Player ${player.id.substring(0,4)}`;
+                    const seeds = `: ${player.seedCount} Seeds`;
+                    listHTML += `<li${isMe ? ' style="font-weight: bold;"' : ''}>${name}${status}${seeds}</li>`;
+                });
             }
+            return; // Exit sort callback early if handled lobby case
         });
 
-        // Generate HTML only for non-spectators
-        playersToDisplay.forEach(player => {
-            const isMe = player.id === gameState.myId;
-            let status = '';
-            // Determine status based on phase (already filtered spectators)
-            if (phase === 'playing' || phase === 'ended') status = player.isAlive ? '' : ' (Dead)';
-            else if (phase === 'lobby' || phase === 'countdown') status = player.hasChosenSpawn ? ' (Placed)' : ''; // Enhanced status
-            const name = player.playerName || `Player ${player.id.substring(0,4)}`;
-            const seeds = (phase === 'playing' || phase === 'ended') ? `: ${player.seedCount} Seeds` : '';
-            listHTML += `<li${isMe ? ' style="font-weight: bold;"' : ''}>${name}${status}${seeds}</li>`;
-        });
 
-        // Handle empty player list or only spectators connected
-        if(listHTML === '' && phase !== 'loading') {
-            if (Object.keys(allConnections).length > 0 && playerCount === 0) { // Check if connections exist but no players
+        // Handle empty list (only if not lobby/countdown where we build it differently)
+        if (listHTML === '' && phase !== 'lobby' && phase !== 'countdown') {
+             if (totalConnectionsCount > 0 && activePlayerCount === 0) { // Check if connections exist but no active players
                  listHTML = '<li>Only spectators connected...</li>';
-            } else if (Object.keys(allConnections).length === 0) { // Check if truly empty
+             } else if (totalConnectionsCount === 0) { // Check if truly empty
                  listHTML = '<li>Waiting for players...</li>';
-            }
-             // If listHTML is still empty here, it means players exist but loop didn't add them? Should not happen.
+             }
+        } else if (listHTML === '' && (phase === 'lobby' || phase === 'countdown')) {
+             if (totalConnectionsCount === 0) {
+                 listHTML = '<li>Waiting for players...</li>';
+             }
+             // If connections exist but list is empty, it means the allSorted loop failed (shouldn't happen)
         }
+
 
         uiElements.leaderboardListUI.innerHTML = listHTML;
      }

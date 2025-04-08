@@ -27,31 +27,23 @@ export function handleConnection(socket, io) {
             socket.emit('adminAuthResult', { success: false, reason: 'Invalid Password' });
             setTimeout(() => socket.disconnect(true), 1000); // Disconnect on failed auth
         }
-        // Remove this listener after first attempt? Or maybe not needed if disconnect happens.
     });
 
     // Listener for Regular Player Join
-    // Use socket.once to ensure it only triggers once per connection attempt
     const regularJoinListener = (data) => {
         if (adminSockets.has(socket.id)) {
-             // If admin already authenticated, ignore regular join attempt
-             // This listener might still fire if playerJoinRequest sent before adminAuthenticate handled
              console.log(`Connection: Ignoring regular join for already authenticated admin ${socket.id}`);
             return;
         }
         handleJoinRequest(socket, io, data, false);
         setupInputAndActionListeners(socket, io); // Setup listeners AFTER join request is handled
     };
-    socket.once('playerJoinRequest', regularJoinListener); // Use 'once'
+    // Use 'once' to prevent multiple join attempts on the same connection
+    socket.once('playerJoinRequest', regularJoinListener);
 
     socket.on('disconnect', () => {
         handleDisconnect(socket, io);
     });
-
-    // Add a timeout for authentication for potential admin connections
-    // If not authenticated as admin within ~3 seconds, treat as regular or disconnect?
-    // For now, we rely on the client sending the correct request. If admin doesn't send auth,
-    // they might send playerJoinRequest later, which `regularJoinListener` would handle.
 } // End of handleConnection
 
 
@@ -64,25 +56,22 @@ function handleJoinRequest(socket, io, data, isAdmin) {
 
     console.log(`Join Handling: Processing join for ${socket.id}. Intent: ${intent}, Admin: ${isAdmin}`);
 
-    // Prevent adding player if they already exist (e.g., rapid reconnect/event duplication)
+    // Prevent adding player if they already exist
     if (getPlayerState(socket.id)) {
         console.warn(`Join Handling: Player ${socket.id} already exists in state. Ignoring join request.`);
-        // Send current state just in case client missed it
         socket.emit('gameStateUpdate', getFullGameStateSnapshot(getAllPlayers(), getGlobalState()));
         return;
     }
 
     addPlayer(socket.id);
     const playerState = getPlayerState(socket.id);
-    if (!playerState) { // Should not happen if addPlayer succeeded
+    if (!playerState) {
         console.error(`Join Handling: Failed to get player state for ${socket.id} after adding. Disconnecting.`);
         socket.disconnect(true);
         return;
     }
 
     // --- Set Spectator Status ---
-    // Explicitly set spectator TRUE if admin or intent is spectate
-    // Explicitly set spectator FALSE otherwise
     playerState.isSpectator = isAdmin || (intent === 'spectate');
     console.log(`Join Handling: Player ${socket.id} spectator status set to: ${playerState.isSpectator}`);
 
@@ -93,23 +82,25 @@ function handleJoinRequest(socket, io, data, isAdmin) {
     // TODO: Handle regular playerName, leafColor, trunkColor, and name uniqueness here later
 
     // --- Determine Initial State/Phase ---
-    const currentPhase = getGlobalState().gamePhase;
-    const players = getAllPlayers(); // Get *current* full list including the new player
-    const nonSpectatorPlayers = Object.values(players).filter(p => !p.isSpectator);
-    const nonSpectatorCount = nonSpectatorPlayers.length;
+    const currentGlobalState = getGlobalState(); // Get current state *before* potential reset
+    const currentPhase = currentGlobalState.gamePhase;
+    const currentPlayers = getAllPlayers(); // Get *current* full list including the new player
+    const currentNonSpectatorPlayers = Object.values(currentPlayers).filter(p => !p.isSpectator);
+    const currentNonSpectatorCount = currentNonSpectatorPlayers.length;
 
-    // Default: Player starts dead (relevant if joining mid-game or as spectator)
+    // Default: Player starts dead
     playerState.isAlive = false;
 
     // --- Single Player Logic ---
+    // *** Revised Condition: Stricter check ***
     if (intent === 'single' && !isAdmin) {
-        // Only allow single player start if *exactly one* non-spectator is connected
-        // and game is in lobby/ended (safe to reset)
-        if (nonSpectatorCount === 1 && (currentPhase === 'lobby' || currentPhase === 'ended')) {
-            console.log(`Join Handling: Player ${socket.id} starting single.`);
+        // Only start single player if:
+        // 1. Phase is lobby or ended (safe to reset)
+        // 2. This new player is the *only* non-spectator currently connected
+        if ((currentPhase === 'lobby' || currentPhase === 'ended') && currentNonSpectatorCount === 1) {
+            console.log(`Join Handling: Player ${socket.id} starting single (Phase: ${currentPhase}, NonSpectators: ${currentNonSpectatorCount}).`);
             resetGame(); // Reset state completely
-            // Need to get the player state again after reset potentially modified it
-            const freshPlayerState = getPlayerState(socket.id);
+            const freshPlayerState = getPlayerState(socket.id); // Get state again after reset
             if (freshPlayerState) {
                 freshPlayerState.isAlive = true; // Mark alive
                 freshPlayerState.isSpectator = false; // Ensure not spectator
@@ -125,7 +116,7 @@ function handleJoinRequest(socket, io, data, isAdmin) {
                  socket.disconnect(true);
             }
         } else {
-            console.warn(`Join Handling: Player ${socket.id} requested single player, but conditions not met (NonSpectators: ${nonSpectatorCount}, Phase: ${currentPhase}). Joining as observer.`);
+            console.warn(`Join Handling: Player ${socket.id} requested single player, but conditions not met (Phase: ${currentPhase}, NonSpectators: ${currentNonSpectatorCount}). Joining as observer.`);
             playerState.isSpectator = true; // Force spectator if single player rules not met
             playerState.isAlive = false;
             socket.emit('gameStateUpdate', getFullGameStateSnapshot(getAllPlayers(), getGlobalState())); // Send current state
@@ -134,21 +125,38 @@ function handleJoinRequest(socket, io, data, isAdmin) {
     }
     // --- Multiplayer / Spectator Logic ---
     else {
-        if (currentPhase === 'playing' || currentPhase === 'countdown') {
-            console.log(`Join Handling: ${socket.id} (Spectator: ${playerState.isSpectator}) joining mid-game/countdown. Observer status.`);
-            // isAlive remains false (set by default above)
-        } else { // Lobby or Ended phase
-            console.log(`Join Handling: ${socket.id} (Spectator: ${playerState.isSpectator}) joining lobby/ended. Phase: ${currentPhase}`);
-            // isAlive remains false
+        // Handle joining an ongoing 'playing' game
+        if (currentPhase === 'playing' && !playerState.isSpectator) {
+            console.log(`Join Handling: Player ${socket.id} (Multiplayer) joining ongoing 'playing' game.`);
+            playerState.isAlive = true; // Mark as alive to join simulation
+            // Assign a default spawn point (random offset) since they can't choose
+            const currentPlayersCount = Object.keys(currentPlayers).length; // Use total count for angle variation
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 10 + Math.random() * 10; // Spawn further out
+            const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
+            playerState.spawnPoint = { x: radius * Math.cos(angle), y: baseHeight, z: radius * Math.sin(angle) };
+            playerState.hasChosenSpawn = true; // Mark as chosen
+            console.log(`Join Handling: Assigned default spawn (${playerState.spawnPoint.x.toFixed(1)}, ${playerState.spawnPoint.z.toFixed(1)}) and marked alive.`);
+            // No need to start simulation, it's already running
         }
+        // Handle joining lobby, countdown, or ended phase, or joining as spectator
+        else if (currentPhase === 'countdown' || currentPhase === 'lobby' || currentPhase === 'ended' || playerState.isSpectator) {
+             console.log(`Join Handling: ${socket.id} (Spectator: ${playerState.isSpectator}) joining non-playing phase or as spectator (Phase: ${currentPhase}). Observer status.`);
+             // isAlive remains false (set by default above)
+        } else {
+            // Should not be reached, but good to log
+            console.error(`Join Handling: Unhandled case for player ${socket.id} (Intent: ${intent}, Phase: ${currentPhase}, Spectator: ${playerState.isSpectator})`);
+        }
+
         // Send the current snapshot to the joining player
         socket.emit('gameStateUpdate', getFullGameStateSnapshot(getAllPlayers(), getGlobalState()));
-        // Broadcast updated player list to everyone else
+        // Broadcast updated player list/state to everyone else
         broadcastGameState(io, getAllPlayers(), getGlobalState());
     }
 }
 
 
+// setupInputAndActionListeners remains the same as the previous version...
 /** Sets up listeners for controls AND actions coming from the client */
 function setupInputAndActionListeners(socket, io) {
      socket.on('updateStomata', (data) => { const ps = getPlayerState(socket.id); if (ps && ps.isAlive && !ps.isSpectator && typeof data?.value === 'number') ps.stomatalConductance = Math.max(0, Math.min(1, data.value)); });
@@ -163,8 +171,6 @@ function setupInputAndActionListeners(socket, io) {
              actionFn(); // Execute the provided action
          } else {
              console.warn(`Unauthorized admin command '${commandName}' from ${socket.id}`);
-             // Optionally disconnect or ignore silently
-             // socket.disconnect(true);
          }
      }
 
@@ -187,7 +193,6 @@ function setupInputAndActionListeners(socket, io) {
          if (phase === 'playing' || phase === 'countdown') {
              endGame(io, getAllPlayers(), globalState, "Game ended by admin."); // endGame stops loops, sets phase, etc.
              showMessageToAll(io, 'Admin ended the game.', 'warning');
-             // Feedback to admin happens implicitly via gameOver event? Or add specific message:
              socket.emit('serverMessage', { text: 'Game force-ended.', type: 'success'});
          } else {
              console.log("ADMIN: Cannot Force End, invalid phase.");
@@ -222,6 +227,7 @@ function setupInputAndActionListeners(socket, io) {
 } // End of setupInputAndActionListeners
 
 
+// handleDisconnect remains the same as the previous version...
 /** Handles socket disconnection */
 function handleDisconnect(socket, io) {
      console.log(`Connection: Player disconnected: ${socket.id}`);
@@ -249,11 +255,8 @@ function handleDisconnect(socket, io) {
          // --- Logic after disconnect ---
          if (currentPhase === 'playing') {
              // If the last *active* player leaves mid-game, end it.
-             if (activePlayerCount === 0 && remainingPlayerCount > 0) { // Only spectators left
+             if (activePlayerCount === 0 && remainingPlayerCount >= 0) { // Check if only spectators left or list is empty
                  console.log("Connection: Last active player disconnected mid-game. Ending game.");
-                 endGame(io, players, getGlobalState(), "Last player left.");
-             } else if (activePlayerCount === 0 && remainingPlayerCount === 0) {
-                 console.log("Connection: Last player disconnected mid-game. Ending game.");
                  endGame(io, players, getGlobalState(), "Last player left.");
              }
              // Otherwise, game continues with remaining players
@@ -268,18 +271,18 @@ function handleDisconnect(socket, io) {
              // Otherwise, countdown continues
          } else if (currentPhase === 'lobby' || currentPhase === 'ended') {
               // If a player leaves lobby/ended, just update the player list
-              // No phase change needed usually.
+              // No phase change needed usually. Reset logic happens in endGame or on new game start.
          }
 
          // Always broadcast the potentially updated state after handling disconnect logic
          broadcastGameState(io, players, getGlobalState());
 
      } else {
-         // This case should be less likely now with the initial check
          console.error(`Connection: Failed to remove player ${socket.id} even though they existed.`);
      }
 }
 
+// showMessageToAll remains the same...
 /** Helper to broadcast a message to all clients */
 function showMessageToAll(io, text, type = 'info') {
     io.emit('serverMessage', { text, type });
