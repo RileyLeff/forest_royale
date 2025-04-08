@@ -40,12 +40,10 @@ const DROUGHT_VARIATION = Config.DROUGHT_VARIATION !== undefined ? Config.DROUGH
 // Function to create initial state for a player within an instance
 function createInitialPlayerState(socketId) {
     const initialLA = INITIAL_LEAF_AREA; const baseHeight = ISLAND_LEVEL; const maxHydraulic = BASE_HYDRAULIC + HYDRAULIC_SCALE_PER_LA * initialLA;
-    // Initialize with default colors, they will be overwritten by settings if provided
     return {
         id: socketId,
         playerName: `Player_${socketId.substring(0, 4)}`,
-        leafColor: '#228B22', // Default Green
-        trunkColor: '#8B4513', // Default Brown
+        leafColor: '#228B22', trunkColor: '#8B4513',
         spawnPoint: { x: 0, y: baseHeight, z: 0 },
         isAlive: false, hasChosenSpawn: false, isSpectator: false, isAI: false,
         carbonStorage: INITIAL_CARBON,
@@ -94,10 +92,9 @@ export class GameInstance {
    getSnapshot() {
        const playersSnapshot = {};
        this.state.players.forEach((playerData, playerId) => {
-           // --->>> INCLUDE NAME AND COLORS <<<---
            playersSnapshot[playerId] = {
                id: playerData.id,
-               playerName: playerData.playerName,   // Include Name
+               playerName: playerData.playerName,
                isAlive: playerData.isAlive,
                hasChosenSpawn: playerData.hasChosenSpawn,
                isSpectator: playerData.isSpectator,
@@ -109,8 +106,8 @@ export class GameInstance {
                damagedLAPercentage: playerData.damagedLAPercentage,
                seedCount: playerData.seedCount,
                spawnPoint: playerData.spawnPoint,
-               leafColor: playerData.leafColor,     // Include Leaf Color
-               trunkColor: playerData.trunkColor    // Include Trunk Color
+               leafColor: playerData.leafColor,
+               trunkColor: playerData.trunkColor
             };
        });
        return {
@@ -126,7 +123,7 @@ export class GameInstance {
            gamePhase: this.state.gamePhase,
            countdownTimer: this.state.countdownTimer,
            allowPlayerCountdownStart: this.state.allowPlayerCountdownStart,
-           players: playersSnapshot, // Send the snapshot with colors/name
+           players: playersSnapshot,
            serverTime: Date.now()
         };
    }
@@ -134,19 +131,73 @@ export class GameInstance {
    updateStateProperty(key, value) { if (key in this.state) { this.state[key] = value; } else { console.warn(`GameInstance ${this.state.instanceId}: Tried to update unknown property ${key}`); } }
 
    // --- Simulation Loop Control ---
-   startSimulationLoop() { if (this.state.simulationIntervalId) { return; } console.log(`GameInstance ${this.state.instanceId}: Starting simulation loop.`); this.state.lastTickTime = Date.now(); this.state.simulationIntervalId = setInterval(() => this.runTick(), 1000 / TICK_RATE); }
-   stopSimulationLoop() { if (this.state.simulationIntervalId) { console.log(`GameInstance ${this.state.instanceId}: Stopping simulation loop.`); clearInterval(this.state.simulationIntervalId); this.state.simulationIntervalId = null; } }
+   startSimulationLoop() {
+       if (this.state.simulationIntervalId) {
+           console.log(`GameInstance ${this.state.instanceId}: Simulation loop ALREADY running (ID: ${this.state.simulationIntervalId}).`);
+           return;
+       }
+       console.log(`GameInstance ${this.state.instanceId}: === Starting simulation loop ===`);
+       this.state.lastTickTime = Date.now();
+       const tickIntervalMs = 1000 / TICK_RATE;
+       this.state.simulationIntervalId = setInterval(() => this.runTick(), tickIntervalMs);
+       console.log(`GameInstance ${this.state.instanceId}: Simulation interval created with ID: ${this.state.simulationIntervalId}, Interval (ms): ${tickIntervalMs}`);
+   }
+
+   stopSimulationLoop() {
+       // --- Add Log ---
+       console.log(`Instance ${this.state.instanceId}: stopSimulationLoop called. Current Interval ID: ${this.state.simulationIntervalId}`);
+       const stack = new Error().stack; // Get call stack
+       console.log("Call Stack:", stack.substring(stack.indexOf('\n') + 1)); // Log stack trace (skip first line)
+       // --- End Log ---
+
+       if (this.state.simulationIntervalId) {
+           console.log(`Instance ${this.state.instanceId}: === Stopping simulation loop (ID: ${this.state.simulationIntervalId}) ===`);
+           clearInterval(this.state.simulationIntervalId);
+           this.state.simulationIntervalId = null;
+       } else {
+            console.log(`Instance ${this.state.instanceId}: stopSimulationLoop called but no active interval ID found.`);
+       }
+   }
 
    // --- Core Game Logic ---
    runTick() {
        const now = Date.now();
-       const deltaTime = Math.min((now - this.state.lastTickTime) / 1000.0, 1.0 / TICK_RATE * 5);
-       this.state.lastTickTime = now;
+       // Ensure lastTickTime is initialized before calculating delta
+       const prevTickTime = this.state.lastTickTime || now; // Use 'now' if lastTickTime is somehow null/undefined initially
+       const deltaTime = Math.min((now - prevTickTime) / 1000.0, 1.0 / TICK_RATE * 5); // Use TICK_RATE constant
+       const currentPhase = this.state.gamePhase; // Cache phase for logging
 
-       if (this.state.gamePhase !== 'playing') { return; }
+       // --- Log Core Tick Values ---
+       // Use console.log for debugging, switch to console.debug or remove for production
+       console.log(`Instance ${this.state.instanceId}: runTick - Phase: ${currentPhase}, Now: ${now}, PrevTick: ${prevTickTime}, Delta: ${deltaTime.toFixed(5)}, IntervalID: ${this.state.simulationIntervalId}`);
 
-       this.updateTimeAndWeather();
+       this.state.lastTickTime = now; // Update last tick time *before* checks
 
+       if (deltaTime <= 0 && currentPhase === 'playing') { // Only warn if playing and delta bad
+           console.warn(`Instance ${this.state.instanceId}: runTick DeltaTime is <= 0! (${deltaTime.toFixed(5)}) Skipping tick logic.`);
+           return; // Skip update if time didn't advance
+       }
+
+       if (currentPhase !== 'playing') {
+           // Don't log spam if paused/lobby, just return
+           return;
+       }
+       // --- End Log ---
+
+       // --- Log Time BEFORE Update ---
+       const timeBeforeUpdate = this.state.timeInCycle;
+
+       // Update global time state *before* calling updateTimeAndWeather
+       // (This was missing in the previous hypothesis, let's move it here)
+       this.state.timeInCycle += deltaTime;
+
+       this.updateTimeAndWeather(); // Call the update function
+
+       // --- Log Time AFTER Update ---
+       console.log(`Instance ${this.state.instanceId}: Time updated from ${timeBeforeUpdate.toFixed(3)} to ${this.state.timeInCycle.toFixed(3)}`);
+
+
+       // Update player physiology
        let playersAliveThisTick = 0;
        this.state.players.forEach(playerState => {
            if (!playerState.isAlive || playerState.isSpectator || playerState.playerName.startsWith('ADMIN_')) return;
@@ -158,11 +209,12 @@ export class GameInstance {
            }
        });
 
+        // Check for game end condition
        const activePlayersCount = this.getNonSpectatorPlayers().length;
        if (playersAliveThisTick === 0 && activePlayersCount > 0 && this.state.gamePhase === 'playing') {
             console.log(`Instance ${this.state.instanceId} Tick: All active players dead condition met. Ending game.`);
             this.endGame("All trees have perished!");
-            return;
+            return; // endGame stops the loop
        }
 
        this.broadcastState();
@@ -170,19 +222,36 @@ export class GameInstance {
 
    updateTimeAndWeather() {
        let enteringNewDay = false;
+       // --- Add Check for Duration Constants ---
+       if (typeof TOTAL_CYCLE_DURATION !== 'number' || TOTAL_CYCLE_DURATION <= 0 ||
+           typeof DAY_TOTAL_DURATION !== 'number' || DAY_TOTAL_DURATION < 0 ||
+           typeof PERIOD_DURATION !== 'number' || PERIOD_DURATION <= 0) {
+           console.error(`INSTANCE ${this.state.instanceId} ERROR: Invalid time duration constants! Stopping simulation.`, {
+               TOTAL_CYCLE_DURATION, DAY_TOTAL_DURATION, PERIOD_DURATION
+           });
+           this.stopSimulationLoop(); // Stop sim if constants are bad
+           return; // Prevent further execution
+       }
+       // --- End Check ---
+
+       const previousTimeInCycle = this.state.timeInCycle; // Store *before* potential reset
+
+       // console.debug(`Instance ${this.state.instanceId}: updateTimeAndWeather START - TimeInCycle: ${this.state.timeInCycle.toFixed(2)}, Day: ${this.state.day}`);
+
        if (this.state.timeInCycle >= TOTAL_CYCLE_DURATION) {
            enteringNewDay = true;
            this.state.day++;
-           this.state.timeInCycle -= TOTAL_CYCLE_DURATION;
-           this.state.currentPeriodIndex = 0;
+           this.state.timeInCycle -= TOTAL_CYCLE_DURATION; // Adjust time back into the new cycle
+           this.state.currentPeriodIndex = 0; // Start at first day period
            this.state.isNight = false;
            this.state.players.forEach(p => { p.growthAppliedThisCycle = false; });
-            this.state._previousPeriodIndexForWeather = -1;
-            // console.log(`--- Instance ${this.state.instanceId}: NEW DAY ${this.state.day} Started ---`);
+           this.state._previousPeriodIndexForWeather = -1; // Reset internal tracker for new day
+           console.log(`--- Instance ${this.state.instanceId}: NEW DAY ${this.state.day} Started ---`);
        }
 
        let calculatedPeriodIndex;
        if (this.state.timeInCycle < DAY_TOTAL_DURATION) {
+           // Make sure calculation is correct even if timeInCycle just reset to near 0
            calculatedPeriodIndex = Math.floor(this.state.timeInCycle / PERIOD_DURATION);
            this.state.isNight = false;
        } else {
@@ -192,23 +261,35 @@ export class GameInstance {
 
        const periodChanged = calculatedPeriodIndex !== this.state._previousPeriodIndexForWeather;
 
-       if (periodChanged) {
-           const oldPeriodIndex = this.state._previousPeriodIndexForWeather;
-           this.state._previousPeriodIndexForWeather = calculatedPeriodIndex;
+       // --- Log Time Advancement ---
+       // Use console.log for visibility during debugging
+       console.log(`Instance ${this.state.instanceId}: updateTime - Time: ${this.state.timeInCycle.toFixed(3)}. Calc Period: ${calculatedPeriodIndex}. State Period: ${this.state.currentPeriodIndex}. Prev Sent Weather Period: ${this.state._previousPeriodIndexForWeather}. Period Changed: ${periodChanged}`);
+       // --- End Log ---
 
+
+       if (periodChanged) {
+           console.log(`--- Instance ${this.state.instanceId}: Period Changed! New Index: ${calculatedPeriodIndex} (was ${this.state._previousPeriodIndexForWeather}) ---`);
+
+           const oldPeriodIndex = this.state._previousPeriodIndexForWeather;
+           this.state._previousPeriodIndexForWeather = calculatedPeriodIndex; // Update internal tracker
+
+           // Generate weather for the new period
            if (!this.state.isNight) {
                const isCloudy = this._generatePeriodWeather();
                 this.state.isRaining = isCloudy && (Math.random() < RAIN_PROB_IF_CLOUDY);
-                // console.log(`Instance ${this.state.instanceId}: Day ${this.state.day}, Period ${calculatedPeriodIndex+1} Weather - Cloudy: ${isCloudy}, Raining: ${this.state.isRaining}, Light: ${this.state.currentLightMultiplier.toFixed(2)}, Drought: ${this.state.currentDroughtFactor.toFixed(2)}`);
+                console.log(`Instance ${this.state.instanceId}: Day ${this.state.day}, Period ${calculatedPeriodIndex+1} Weather - Cloudy: ${isCloudy}, Raining: ${this.state.isRaining}, Light: ${this.state.currentLightMultiplier.toFixed(2)}, Drought: ${this.state.currentDroughtFactor.toFixed(2)}`);
            } else {
+                // Generate night weather only once when transitioning into night
                 if (oldPeriodIndex !== -1) {
                    this._generateNightWeather();
                    this.state.players.forEach(p => { p.foliarUptakeAppliedThisNight = false; });
-                   // console.log(`Instance ${this.state.instanceId}: Entering Night Weather - Raining: ${this.state.isRaining}`);
+                   console.log(`Instance ${this.state.instanceId}: Entering Night Weather - Raining: ${this.state.isRaining}`);
                 }
            }
+           // IMPORTANT: Update the official state *after* generating weather for the new period
            this.state.currentPeriodIndex = calculatedPeriodIndex;
        }
+       // console.debug(`Instance ${this.state.instanceId}: updateTimeAndWeather END - isNight: ${this.state.isNight}, PeriodIndex: ${this.state.currentPeriodIndex}`);
    }
 
    // --- Physiology, Weather Gen, Allocation (Internal Helpers) ---
@@ -222,21 +303,22 @@ export class GameInstance {
     }
 
    // --- Countdown Logic ---
-   startCountdown() { if (this.state.gamePhase !== 'lobby' || this.state.countdownIntervalId) { return; } if (this.state.mode !== 'multi') { return; } const activePlayerCount = this.getNonSpectatorPlayers().length; if (activePlayerCount === 0) { return; } console.log(`GameInstance ${this.state.instanceId}: Starting ${COUNTDOWN_DURATION}s countdown...`); this.setGamePhase('countdown'); this.state.countdownTimer = COUNTDOWN_DURATION; this.broadcastState(); this.state.countdownIntervalId = setInterval(() => { if (this.state.gamePhase !== 'countdown' || this.state.countdownTimer === null) { this.stopCountdown(); return; } const currentActivePlayers = this.getNonSpectatorPlayers().length; if (currentActivePlayers === 0) { this.stopCountdown(); this.setGamePhase('lobby'); this.broadcastState(); return; } const newTime = this.state.countdownTimer - 1; this.state.countdownTimer = newTime; this.broadcastState(); if (newTime <= 0) { this.stopCountdown(); this._prepareAndStartGame(); } }, 1000); }
+   startCountdown() { if (this.state.gamePhase !== 'lobby' || this.state.countdownIntervalId) { return; } if (this.state.mode !== 'multi') { return; } const activePlayerCount = this.getNonSpectatorPlayers().length; if (activePlayerCount === 0) { console.log(`GameInstance ${this.state.instanceId}: Cannot start countdown, no active players.`); return; } console.log(`GameInstance ${this.state.instanceId}: Starting ${COUNTDOWN_DURATION}s countdown...`); this.setGamePhase('countdown'); this.state.countdownTimer = COUNTDOWN_DURATION; this.broadcastState(); this.state.countdownIntervalId = setInterval(() => { if (this.state.gamePhase !== 'countdown' || this.state.countdownTimer === null) { this.stopCountdown(); return; } const currentActivePlayers = this.getNonSpectatorPlayers().length; if (currentActivePlayers === 0) { console.log(`GameInstance ${this.state.instanceId}: Countdown cancelled, no active players remaining.`); this.stopCountdown(); this.setGamePhase('lobby'); this.broadcastState(); return; } const newTime = this.state.countdownTimer - 1; this.state.countdownTimer = newTime; this.broadcastState(); if (newTime <= 0) { this.stopCountdown(); this._prepareAndStartGame(); } }, 1000); }
    stopCountdown() { if (this.state.countdownIntervalId) { clearInterval(this.state.countdownIntervalId); this.state.countdownIntervalId = null; } }
 
    // --- Start Game Helper ---
    _prepareAndStartGame() {
        this.stopCountdown();
-       if (this.state.gamePhase === 'playing') { return; }
+       if (this.state.gamePhase === 'playing') {
+            console.warn(`GameInstance ${this.state.instanceId}: _prepareAndStartGame called but already in 'playing' phase.`);
+            return;
+        }
        console.log(`GameInstance ${this.state.instanceId}: Preparing players and starting game...`);
        this.setGamePhase('playing');
        let playersMarkedAliveCount = 0;
        this.state.players.forEach(playerState => {
-           // console.log(`_prepareAndStartGame: Checking player ${playerState.id}, isSpectator=${playerState.isSpectator}, isAI=${playerState.isAI}, Name=${playerState.playerName}`);
            if (playerState.isSpectator || playerState.isAI || playerState.playerName.startsWith('ADMIN_')) {
                playerState.isAlive = false;
-               // console.log(`_prepareAndStartGame: Skipping spectator/AI/Admin ${playerState.id}, ensuring isAlive=false.`);
                return;
            }
            if (!playerState.hasChosenSpawn) {
@@ -248,11 +330,9 @@ export class GameInstance {
            }
            if (!playerState.isAlive) {
                 playerState.isAlive = true;
-                // console.log(`_prepareAndStartGame: Setting player ${playerState.id} to isAlive=true.`);
                 playersMarkedAliveCount++;
            } else {
                 playersMarkedAliveCount++;
-                // console.log(`_prepareAndStartGame: Player ${playerState.id} was already alive.`);
            }
            playerState.growthAppliedThisCycle = false;
            playerState.foliarUptakeAppliedThisNight = false;
@@ -265,6 +345,7 @@ export class GameInstance {
        }
        console.log(`GameInstance ${this.state.instanceId}: Marked ${playersMarkedAliveCount} players alive.`);
        this.broadcastState();
+       console.log(`GameInstance ${this.state.instanceId}: === Calling startSimulationLoop from _prepareAndStartGame ===`);
        this.startSimulationLoop();
    }
    _assignDefaultSpawn(playerState) { const nonSpectatorPlayers = this.getNonSpectatorPlayers(); const index = nonSpectatorPlayers.findIndex(ap => ap.id === playerState.id); const activePlayerCount = nonSpectatorPlayers.length || 1; const angle = (index / activePlayerCount) * Math.PI * 2 + Math.random()*0.1; const radius = 5 + Math.random() * 5; const baseHeight = ISLAND_LEVEL; playerState.spawnPoint = { x: radius * Math.cos(angle), y: baseHeight, z: radius * Math.sin(angle) }; playerState.hasChosenSpawn = true; }

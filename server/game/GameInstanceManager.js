@@ -64,7 +64,6 @@ class GameInstanceManager {
     }
 
     // --- Player Routing & Management ---
-    // <<<--- ACCEPT SETTINGS ARGUMENT (make it optional for admin/spectate) ---<<<
     routePlayer(socket, intent, isAdmin, settings = null) {
         console.log(`InstanceMgr: Routing player ${socket.id} with intent: ${intent}, isAdmin: ${isAdmin}`);
         let targetInstance = null;
@@ -78,7 +77,6 @@ class GameInstanceManager {
                 playerState.isSpectator = true;
                 playerState.isAlive = false;
                 if (isAdmin) playerState.playerName = `ADMIN_${socket.id.substring(0, 4)}`;
-                // Don't apply user settings to admin/spectator unless desired
 
                 console.log(`InstanceMgr: Player state for ${socket.id} SET: isSpectator=${playerState.isSpectator}, isAlive=${playerState.isAlive}, Name=${playerState.playerName}`);
                 this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId);
@@ -103,7 +101,6 @@ class GameInstanceManager {
                  playerState.spawnPoint = { x: 0, y: baseHeight, z: 0 };
                  playerState.hasChosenSpawn = true;
 
-                 // --->>> APPLY SETTINGS FOR SINGLE PLAYER <<<---
                  if (settings) {
                      playerState.playerName = settings.playerName;
                      playerState.leafColor = settings.leafColor;
@@ -112,9 +109,10 @@ class GameInstanceManager {
                  } else {
                       console.warn(`InstanceMgr: No settings provided for single player ${socket.id}. Using defaults.`);
                  }
-                 // ---<<< END APPLY SETTINGS >>>---
 
                  targetInstance.setGamePhase('playing');
+                 // --- Add Log Before Starting Loop ---
+                 console.log(`InstanceMgr: === Calling startSimulationLoop for single player instance ${targetInstance.state.instanceId} ===`);
                  targetInstance.startSimulationLoop();
                  this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId);
                  console.log(`InstanceMgr: Sending initial state snapshot to single player ${socket.id}`);
@@ -137,10 +135,9 @@ class GameInstanceManager {
                  return null;
             }
 
-             playerState.isSpectator = false; // Default for multi intent
+             playerState.isSpectator = false;
              playerState.isAlive = false;
 
-            // --->>> APPLY SETTINGS FOR MULTIPLAYER <<<---
             if (settings) {
                 playerState.playerName = settings.playerName;
                 playerState.leafColor = settings.leafColor;
@@ -149,30 +146,26 @@ class GameInstanceManager {
             } else {
                  console.warn(`InstanceMgr: No settings provided for multiplayer player ${socket.id}. Using defaults.`);
             }
-            // ---<<< END APPLY SETTINGS >>>---
 
-            // Determine spectator status based on phase *after* applying settings
             if (currentPhase === 'playing' || currentPhase === 'countdown') {
                 console.warn(`InstanceMgr: Player ${socket.id} (${playerState.playerName}) joining active multiplayer game (Phase: ${currentPhase}). Forcing Spectator.`);
-                playerState.isSpectator = true; // Force spectator
+                playerState.isSpectator = true;
                 socket.emit('serverMessage', { text: 'Game in progress, joining as spectator.', type: 'warning'});
             } else {
                  console.log(`InstanceMgr: Player ${socket.id} (${playerState.playerName}) joining multiplayer lobby (Phase: ${currentPhase}).`);
-                 // isSpectator = false, isAlive = false (already set)
             }
 
-            this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId); // Map player to instance
+            this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId);
             console.log(`InstanceMgr: Sending initial state snapshot to multiplayer player ${socket.id}`);
             socket.emit('gameStateUpdate', targetInstance.getSnapshot());
-            targetInstance.broadcastState(); // Inform others
+            targetInstance.broadcastState();
         }
         else {
             console.error(`InstanceMgr: Unknown intent '${intent}' for player ${socket.id}. Disconnecting.`);
             socket.disconnect(true);
-            return null; // Explicitly return null on failure
+            return null;
         }
 
-        // Return the instance the player was routed to (or null if failed)
         return targetInstance;
     }
 

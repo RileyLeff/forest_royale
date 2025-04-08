@@ -1,6 +1,18 @@
 // server/config.js
 // Game Constants & Configuration
-// (Content copied from root config.js)
+
+// Ensure TICK_RATE is defined for GameInstance
+export const TICK_RATE = 20; // Example value, ensure it's sensible
+
+// Ensure time durations are sensible positive numbers
+export const PERIOD_DURATION = 7.0;         // Duration of each daytime weather period (seconds)
+export const NUM_DAY_PERIODS = 3;           // Number of weather periods per day
+export const DAY_TOTAL_DURATION = PERIOD_DURATION * NUM_DAY_PERIODS; // Total duration of all day periods (21.0)
+export const NIGHT_DURATION = 3.0;          // Duration of nighttime (seconds)
+export const TOTAL_CYCLE_DURATION = DAY_TOTAL_DURATION + NIGHT_DURATION; // Full day-night cycle length (24.0)
+
+// Ensure countdown duration is defined
+export const COUNTDOWN_DURATION = 5; // Example
 
 export const k_TA_LA_RATIO = 0.01; // Trunk cross-section area / Leaf Area ratio
 export const INITIAL_LEAF_AREA = 5;
@@ -25,12 +37,6 @@ export const CROWN_DIEBACK_RATE = 0.05;      // Proportion of canopy LA potentia
 export const GROWTH_COST_PER_LA = 5;        // Carbon cost to add 1 unit of LA (includes implicit trunk cost)
 export const SEED_COST = 1;                 // Carbon cost per seed
 
-// Time Structure Constants
-export const PERIOD_DURATION = 7.0;         // Duration of each daytime weather period (seconds)
-export const NUM_DAY_PERIODS = 3;           // Number of weather periods per day
-export const DAY_TOTAL_DURATION = PERIOD_DURATION * NUM_DAY_PERIODS; // Total duration of all day periods
-export const NIGHT_DURATION = 3.0;          // Duration of nighttime (seconds)
-export const TOTAL_CYCLE_DURATION = DAY_TOTAL_DURATION + NIGHT_DURATION; // Full day-night cycle length
 export const GROWTH_OFFSET_NIGHT = 1.5;     // Time into night when growth allocation occurs (seconds)
 
 // Weather Probabilities & Effects
@@ -46,21 +52,9 @@ export const DROUGHT_VARIATION = 0.4;       // Max +/- variation around the base
 export const RAIN_RECOVERY_BONUS_MULT = 3.0; // Multiplier for HYDRAULIC_RECOVERY_RATE during rain
 export const NIGHT_RAIN_HYDRAULIC_BOOST = 20.0; // Absolute hydraulic units added during rainy night (foliar uptake)
 
-// Canopy Tile Configuration (Client might still need this, but server sim doesn't directly)
-// export const CANOPY_TILE_GRID_SIZE = 10;
-// export const CANOPY_TILE_THICKNESS = 0.1;
+// Island Configuration (Server might need for validation, client needs for rendering)
+export const ISLAND_RADIUS = 50;
+// export const WATER_LEVEL = 0; // Client only?
+export const ISLAND_LEVEL = 0.1; // Needed for spawn height
 
-// Island Configuration (Client primarily needs this, server might for spawn validation)
-// export const ISLAND_RADIUS = 50;
-// export const WATER_LEVEL = 0;
-// export const ISLAND_LEVEL = 0.1;
-
-// Default Colors (Client only)
-// export const DEFAULT_LEAF_COLOR = '#228B22';
-// export const DEFAULT_TRUNK_COLOR = '#8B4513';
-
-// Fog constants (Client only)
-// export const FOG_DAY_NEAR = 50;
-// export const FOG_DAY_FAR = 150;
-// export const FOG_NIGHT_NEAR = 9999;
-// export const FOG_NIGHT_FAR = 10000;
+// NOTE: Default colors, fog, canopy tiles are primarily client-side concerns now.
