@@ -103,10 +103,10 @@ export function updateUI() {
         playersToDisplay.forEach(player => {
             const isMe = player.id === gameState.myId;
             let status = '';
+            // Determine status based on phase (already filtered spectators)
             if (phase === 'playing' || phase === 'ended') status = player.isAlive ? '' : ' (Dead)';
             else if (phase === 'lobby' || phase === 'countdown') status = player.hasChosenSpawn ? ' (Placed)' : '';
             const name = player.playerName || `Player ${player.id.substring(0,4)}`;
-            // Only show seeds if game is playing or ended
             const seeds = (phase === 'playing' || phase === 'ended') ? `: ${player.seedCount} Seeds` : '';
             listHTML += `<li${isMe ? ' style="font-weight: bold;"' : ''}>${name}${status}${seeds}</li>`;
         });
