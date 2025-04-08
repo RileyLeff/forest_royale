@@ -42,6 +42,8 @@ let globalGameState = {
 let players = {};
 function initializePlayerState(socketId) {
     const initialLA = Config.INITIAL_LEAF_AREA;
+    // Use server config for ISLAND_LEVEL here
+    const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
     const maxHydraulic = Config.BASE_HYDRAULIC + Config.HYDRAULIC_SCALE_PER_LA * initialLA;
     return {
         id: socketId,
@@ -49,7 +51,7 @@ function initializePlayerState(socketId) {
         playerName: `Player_${socketId.substring(0, 4)}`, // Default name
         leafColor: '#228B22', // Default color (client can override later)
         trunkColor: '#8B4513', // Default color
-        spawnPoint: { x: 0, y: Config.ISLAND_LEVEL, z: 0 }, // Default spawn (will be chosen later)
+        spawnPoint: { x: 0, y: baseHeight, z: 0 }, // Default spawn uses server config
         isAlive: false, // Becomes true when game starts
 
         // --- Core Resources ---
@@ -80,11 +82,11 @@ function initializePlayerState(socketId) {
 }
 
 // --- Serve Static Files & Routes (Keep as before) ---
-console.log(`Serving static files from: ${projectRoot}`);
+console.log(`Serving static files from: ${projectRoot}`); // NOTE: This path might be wrong if structure changes later
 app.use(express.static(projectRoot));
-app.get('/', (req, res) => { res.sendFile(path.join(projectRoot, 'index.html')); });
-app.get('/game', (req, res) => { res.sendFile(path.join(projectRoot, 'game.html')); });
-app.get('/settings', (req, res) => { res.sendFile(path.join(projectRoot, 'settings.html')); });
+app.get('/', (req, res) => { res.sendFile(path.join(projectRoot, 'index.html')); }); // NOTE: Adjust path if client moves
+app.get('/game', (req, res) => { res.sendFile(path.join(projectRoot, 'game.html')); }); // NOTE: Adjust path if client moves
+app.get('/settings', (req, res) => { res.sendFile(path.join(projectRoot, 'settings.html')); }); // NOTE: Adjust path if client moves
 // Add /admin route later
 
 // --- Socket.IO Connection Handling ---
@@ -139,8 +141,7 @@ function updateGame() {
         Object.values(players).forEach(p => {
              p.growthAppliedThisCycle = false;
         });
-        console.log(`SERVER: --- START DAY ${globalGameState.day} ---`);
-        // TODO: Reset previousPeriodIndex logic if needed here or rely on change detection below
+        // console.log(`SERVER: --- START DAY ${globalGameState.day} ---`); // Reduce noise
     }
 
     // Determine current logical period index and night status
@@ -156,30 +157,29 @@ function updateGame() {
     // Check for Period/Phase Transitions & Generate Weather
     const periodChanged = calculatedPeriodIndex !== globalGameState.currentPeriodIndex || enteringNewDay;
     if (periodChanged) {
-        const oldPeriodIndex = globalGameState.currentPeriodIndex; // Store previous index
+        const oldPeriodIndex = globalGameState.currentPeriodIndex;
         globalGameState.currentPeriodIndex = calculatedPeriodIndex;
 
         if (!globalGameState.isNight) {
             // New Daytime Period
-            const isCloudy = generatePeriodWeather(); // Updates globalGameState directly
+            const isCloudy = generatePeriodWeather();
             globalGameState.isRaining = isCloudy && (Math.random() < Config.RAIN_PROB_IF_CLOUDY);
-            console.log(`SERVER: Entering Day Period ${globalGameState.currentPeriodIndex}: Light=${globalGameState.currentLightMultiplier.toFixed(2)}, Drought=${globalGameState.currentDroughtFactor.toFixed(2)}, Raining=${globalGameState.isRaining}`);
+            // console.log(`SERVER: Entering Day Period ${globalGameState.currentPeriodIndex}: Light=${globalGameState.currentLightMultiplier.toFixed(2)}, Drought=${globalGameState.currentDroughtFactor.toFixed(2)}, Raining=${globalGameState.isRaining}`); // Reduce noise
         } else {
             // Entering Nighttime
-            if (oldPeriodIndex !== -1) { // Only generate weather once when entering night
-                generateNightWeather(); // Updates globalGameState directly
-                // Reset foliar uptake flags for all players
+            if (oldPeriodIndex !== -1) {
+                generateNightWeather();
                 Object.values(players).forEach(p => { p.foliarUptakeAppliedThisNight = false; });
-                console.log(`SERVER: Entering Night: Raining=${globalGameState.isRaining}`);
+                // console.log(`SERVER: Entering Night: Raining=${globalGameState.isRaining}`); // Reduce noise
             }
         }
-        // Note: Visual transitions (lerping) happen client-side based on this state
     }
 
 
     // --- 3. Update Each Player's State ---
+    let playersAlive = 0; // Count alive players this tick (moved initialization here)
     Object.values(players).forEach(playerState => {
-        if (!playerState.isAlive) return; // Skip dead players
+        if (!playerState.isAlive) return;
 
         const stomata = playerState.stomatalConductance;
         const effLA = Math.max(0, playerState.effectiveLA);
@@ -221,7 +221,6 @@ function updateGame() {
             const damageIncrease = Config.CROWN_DIEBACK_RATE * deltaTime;
             playerState.damagedLAPercentage = Math.min(1, playerState.damagedLAPercentage + damageIncrease);
             playerState.effectiveLA = playerState.currentLA * (1 - playerState.damagedLAPercentage);
-            // Note: Visual update happens client-side based on this percentage
         }
 
         // Night Events
@@ -231,14 +230,13 @@ function updateGame() {
                 const boostAmount = Config.NIGHT_RAIN_HYDRAULIC_BOOST;
                 playerState.hydraulicSafety = Math.min(playerState.hydraulicSafety + boostAmount, playerState.maxHydraulic);
                 playerState.foliarUptakeAppliedThisNight = true;
-                // console.log(`SERVER: Foliar Boost for ${playerState.id}`);
             }
 
             // Growth Allocation Trigger
             const timeIntoNight = globalGameState.timeInCycle - Config.DAY_TOTAL_DURATION;
             if (timeIntoNight >= Config.GROWTH_OFFSET_NIGHT && !playerState.growthAppliedThisCycle) {
-                 console.log(`SERVER: Triggering growth for ${playerState.id}`);
-                 applyAllocation(playerState); // Apply growth based on player's state
+                 // console.log(`SERVER: Triggering growth for ${playerState.id}`); // Reduce noise
+                 applyAllocation(playerState);
                  playerState.growthAppliedThisCycle = true;
             }
         }
@@ -247,13 +245,24 @@ function updateGame() {
         if ((playerState.carbonStorage <= 0 || playerState.hydraulicSafety <= 0) && playerState.isAlive) {
             console.log(`SERVER: Player ${playerState.id} died. Carbon: ${playerState.carbonStorage.toFixed(1)}, Hydraulics: ${playerState.hydraulicSafety.toFixed(1)}`);
             playerState.isAlive = false;
-            // TODO: Check if this was the last player alive to end the game
+        } else if (playerState.isAlive) {
+            // Only count if they didn't die this tick
+            playersAlive++;
         }
-    });
+    }); // End of player update loop
+
+     // --- Check for Game End Condition ---
+    // Moved check outside the loop, uses playersAlive count from this tick
+    if (playersAlive === 0 && Object.keys(players).length > 0 && globalGameState.gamePhase === 'playing') {
+        console.log("SERVER: All players are dead. Ending game.");
+        endGame(); // Call the end game function
+    }
+
 
     // --- 4. Broadcast Game State ---
-    // Send a snapshot of the relevant state to all clients
-    io.emit('gameStateUpdate', getSimplifiedGameStateSnapshot()); // Use simplified snapshot for regular updates
+    const snapshot = getSimplifiedGameStateSnapshot();
+    // console.log(`DEBUG: Broadcasting state. Phase in snapshot: ${snapshot.gamePhase}`); // Leave commented for now
+    io.emit('gameStateUpdate', snapshot);
 }
 
 // --- Simulation Helper Functions (Adapted from client simulation.js) ---
@@ -264,20 +273,19 @@ function generatePeriodWeather() {
     globalGameState.currentLightMultiplier = isCloudy ? Config.LIGHT_MULT_CLOUDY : Config.LIGHT_MULT_SUNNY;
     const droughtVariation = (Math.random() * 2 - 1) * Config.DROUGHT_VARIATION;
     globalGameState.currentDroughtFactor = Math.max(0.1, Config.DROUGHT_MULT_BASE + droughtVariation);
-    // Rain is set separately after checking cloudiness
-    return isCloudy; // Return cloudiness status for rain check
+    return isCloudy;
 }
 
 function generateNightWeather() {
     const isConceptuallyCloudy = Math.random() >= Config.SUNNY_PROB;
     globalGameState.isRaining = isConceptuallyCloudy && (Math.random() < Config.RAIN_PROB_IF_CLOUDY);
-    globalGameState.currentLightMultiplier = 0; // No light at night
-    globalGameState.currentDroughtFactor = Config.DROUGHT_MULT_BASE; // Assume base drought at night? Or lower? TBD.
+    globalGameState.currentLightMultiplier = 0;
+    globalGameState.currentDroughtFactor = Config.DROUGHT_MULT_BASE;
 }
 
 function applyAllocation(playerState) {
     const available = Math.floor(playerState.carbonStorage);
-    if (available <= 0) return; // Cannot allocate if no carbon
+    if (available <= 0) return;
 
     const savingsPercent = Math.max(0, Math.min(100, playerState.lastSavingsPercent));
     const growthRatioPercent = Math.max(0, Math.min(100, playerState.lastGrowthRatioPercent));
@@ -285,12 +293,11 @@ function applyAllocation(playerState) {
     const carbonToSpend = Math.floor(available * (1 - savingsPercent / 100));
     const actualCarbonForGrowth = Math.floor(carbonToSpend * (growthRatioPercent / 100));
     const carbonForSeeds = carbonToSpend - actualCarbonForGrowth;
-    const seedsToMake = Math.floor(carbonForSeeds / Config.SEED_COST); // Ensure integer seeds
-    const actualCarbonForSeeds = seedsToMake * Config.SEED_COST; // Actual cost based on integer seeds
+    const seedsToMake = Math.floor(carbonForSeeds / Config.SEED_COST);
+    const actualCarbonForSeeds = seedsToMake * Config.SEED_COST;
 
     const totalSpent = actualCarbonForGrowth + actualCarbonForSeeds;
 
-    // Sanity check
     if (totalSpent > available + 0.01 || totalSpent < 0) {
         console.error(`SERVER ALLOCATION ERROR for ${playerState.id}: Invalid spend (${totalSpent}) vs available (${available}). Skipping.`);
         return;
@@ -300,7 +307,6 @@ function applyAllocation(playerState) {
     playerState.seedCount += seedsToMake;
 
     if (actualCarbonForGrowth > 0) {
-        // Apply growth logic (updates playerState directly)
         const currentTrunkVolume = (playerState.trunkWidth || 0.1) * (playerState.trunkDepth || 0.1) * (playerState.trunkHeight || 0.1);
         const currentBiomassEstimate = Math.max(1, playerState.currentLA + currentTrunkVolume);
         const biomassToAdd = actualCarbonForGrowth / Config.GROWTH_COST_PER_LA;
@@ -308,13 +314,10 @@ function applyAllocation(playerState) {
 
         playerState.currentLA *= growthFactor;
         playerState.trunkHeight *= growthFactor;
-        // Recalculate derived values
         playerState.trunkWidth = Math.sqrt(playerState.currentLA * Config.k_TA_LA_RATIO);
         playerState.trunkDepth = playerState.trunkWidth;
         playerState.maxHydraulic = Config.BASE_HYDRAULIC + Config.HYDRAULIC_SCALE_PER_LA * playerState.currentLA;
-        playerState.effectiveLA = playerState.currentLA * (1 - playerState.damagedLAPercentage); // Update effective LA after growth
-
-         // console.log(`SERVER: Growth applied for ${playerState.id}. New LA: ${playerState.currentLA.toFixed(1)}, H: ${playerState.trunkHeight.toFixed(1)}`);
+        playerState.effectiveLA = playerState.currentLA * (1 - playerState.damagedLAPercentage);
     }
 }
 
@@ -322,27 +325,25 @@ function applyAllocation(playerState) {
 
 // Creates a lightweight snapshot for frequent updates
 function getSimplifiedGameStateSnapshot() {
-    // Extract only the necessary data for each player
     const playersSnapshot = {};
     Object.values(players).forEach(p => {
         playersSnapshot[p.id] = {
             id: p.id,
             playerName: p.playerName,
             isAlive: p.isAlive,
-            // Resources (send percentage or value?) Value might be better for bars.
             carbonStorage: p.carbonStorage,
             hydraulicSafety: p.hydraulicSafety,
-            maxHydraulic: p.maxHydraulic, // Needed to calculate % on client
-            // Visual state
-            currentLA: p.currentLA, // Needed for scaling
+            maxHydraulic: p.maxHydraulic,
+            currentLA: p.currentLA,
             trunkHeight: p.trunkHeight,
             damagedLAPercentage: p.damagedLAPercentage,
-            // Score
             seedCount: p.seedCount,
-            // Add position later when spawning is implemented
-            // position: p.spawnPoint
+            spawnPoint: p.spawnPoint // Include spawnPoint
         };
     });
+
+    // <<< ADD LOGGING INSIDE SNAPSHOT CREATION >>>
+    // console.log(`DEBUG: Creating snapshot. Global phase: ${globalGameState.gamePhase}`); // Uncomment to check phase value
 
     return {
         // Global environment
@@ -354,17 +355,16 @@ function getSimplifiedGameStateSnapshot() {
         currentDroughtFactor: globalGameState.currentDroughtFactor,
         isRaining: globalGameState.isRaining,
         // Game Phase
-        gamePhase: globalGameState.gamePhase,
+        gamePhase: globalGameState.gamePhase, // <<< MAKE SURE THIS IS CORRECTLY REFERENCING THE GLOBAL STATE
         // Player states
         players: playersSnapshot,
-        // Timestamp for debugging/lag comp later?
         serverTime: Date.now()
     };
 }
 
 // Creates a full snapshot (e.g., for initial connection)
 function getFullGameStateSnapshot() {
-    // For now, it's the same as the simplified one, but could include more later
+    // For now, it's the same as the simplified one
     return getSimplifiedGameStateSnapshot();
 }
 
@@ -376,7 +376,7 @@ function startGameSimulation() {
         return;
     }
     console.log("SERVER: Starting simulation loop.");
-    lastTickTime = Date.now(); // Reset start time
+    lastTickTime = Date.now();
     simulationInterval = setInterval(updateGame, TICK_INTERVAL_MS);
 }
 
@@ -388,39 +388,81 @@ function stopGameSimulation() {
     }
 }
 
+// --- Game End Function (Implementation moved here from Step 1.3 plan) ---
+function endGame() {
+    if (globalGameState.gamePhase !== 'playing') return; // Prevent multiple ends
+
+    console.log("SERVER: Determining winner and ending game.");
+    stopGameSimulation(); // Stop the loop
+    globalGameState.gamePhase = 'ended'; // Set phase to ended
+
+    // Determine winner (highest seed count among all participants)
+    let winnerId = null;
+    let maxSeeds = -1;
+    Object.values(players).forEach(p => {
+        // Consider only players who were alive at some point? Or all players? All players for now.
+        if (p.seedCount > maxSeeds) {
+            maxSeeds = p.seedCount;
+            winnerId = p.id;
+        }
+        // Simple tie-breaking: first player found with max seeds wins.
+    });
+
+    const reason = "All trees have perished!";
+    console.log(`SERVER: Game Ended. Winner: ${winnerId || 'None'} with ${maxSeeds} seeds.`);
+
+    // Broadcast game over event to all clients
+    io.emit('gameOver', {
+        reason: reason,
+        winnerId: winnerId,
+        // Optionally send final scores map:
+        // finalScores: Object.fromEntries(Object.entries(players).map(([id, p]) => [id, { name: p.playerName, seeds: p.seedCount }]))
+    });
+
+    // Consider resetting state for the next game after a delay
+    // setTimeout(resetGlobalState, 10000); // Example: reset after 10s
+}
+
+// --- Function to reset global state (Placeholder for now) ---
+function resetGlobalState() {
+     console.log("SERVER: Resetting global game state (placeholder)...");
+    // Implement actual reset logic if needed later
+    globalGameState.gamePhase = 'lobby';
+    globalGameState.day = 1;
+    globalGameState.timeInCycle = 0;
+    // Players object clears naturally as they disconnect/reconnect
+}
+
 // --- Start Server ---
 server.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
-    // Don't start the simulation immediately, wait for lobby/start logic
-    // startGameSimulation();
 });
-// server/server.js
 
-// ... (rest of the server code) ...
 
-// Example: Start game manually for testing (replace with lobby logic later)
+// --- Test setTimeout Block ---
+// Example: Start game manually for testing (Uncomment for debugging Part 1)
 setTimeout(() => {
     if (Object.keys(players).length === 0) {
          console.log("SERVER: Skipping manual start, no players connected.");
-         return; // Don't start if no one is here
+         return;
     }
-    console.log("SERVER: Manually starting game for testing...");
-    globalGameState.gamePhase = 'playing'; // Set phase to playing
+    // <<< ADD LOGGING BEFORE SETTING PHASE >>>
+    console.log(`SERVER: Setting gamePhase FROM ${globalGameState.gamePhase} TO playing (in setTimeout)`);
+    globalGameState.gamePhase = 'playing';
 
-    // Mark all connected players as alive and give them a default spawn
-    Object.values(players).forEach((p, index) => { // Get index for slight offset
-         p.isAlive = true; // <<< SET TO TRUE
-         // Simple offset spawn for testing multiple players later
+    Object.values(players).forEach((p, index) => {
+         p.isAlive = true;
          const angle = (index / Object.keys(players).length) * Math.PI * 2;
-         const radius = 5; // Spawn in a small circle
+         const radius = 5;
+         // Use server config for ISLAND_LEVEL
+         const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
          p.spawnPoint = {
              x: radius * Math.cos(angle),
-             // Use Config.ISLAND_LEVEL from server config for base height
-             y: Config.ISLAND_LEVEL,
+             y: baseHeight,
              z: radius * Math.sin(angle)
          };
          console.log(`SERVER: Player ${p.id} marked alive at ${p.spawnPoint.x.toFixed(1)}, ${p.spawnPoint.z.toFixed(1)}`);
     });
 
-    startGameSimulation(); // Start the actual simulation loop
-}, 5000); // Start after 5 seconds
+    startGameSimulation();
+}, 5000);

@@ -6,7 +6,8 @@ export const BASE_HYDRAULIC = 50; // Fallback for UI bar if player state not rea
 
 // --- Rendering & Visual Defaults ---
 export const INITIAL_TRUNK_HEIGHT = 2; // Used as fallback for camera target
-export const ISLAND_RADIUS = 50; // <<-- ADD THIS (Needed for water plane size)
+export const ISLAND_RADIUS = 50; // <<-- Ensure this is present and correct
+export const WATER_LEVEL = 0; // <<-- Ensure this is present and correct
 export const ISLAND_LEVEL = 0.1; // Needed for positioning trees? Check tree.js usage.
 export const DEFAULT_LEAF_COLOR = '#228B22'; // Forest Green - Used if server doesn't send color? Or for material fallback.
 export const DEFAULT_TRUNK_COLOR = '#8B4513'; // Saddle Brown - Used if server doesn't send color? Or for material fallback.
@@ -32,3 +33,5 @@ export const DROUGHT_VARIATION = 0.4;
 
 
 // NOTE: Simulation rates, costs, probabilities, etc., are now primarily server-side
+// in server/config.js and should NOT be duplicated here unless specifically
+// needed for some client-side prediction or display logic (which we currently don't have).
