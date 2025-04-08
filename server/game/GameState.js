@@ -2,23 +2,22 @@
 import * as Config from '../config.js'; // Use server config
 
 // --- Core State Variables ---
-
 let globalGameState = {
     day: 1,
     timeInCycle: 0.0,
-    currentPeriodIndex: -1,
+    currentPeriodIndex: -1, // -1: Initial/Night, 0-2: Day periods
     isNight: false,
-    currentLightMultiplier: Config.LIGHT_MULT_SUNNY,
+    currentLightMultiplier: Config.LIGHT_MULT_SUNNY, // Initial assumption
     currentDroughtFactor: Config.DROUGHT_MULT_BASE,
     isRaining: false,
     gamePhase: 'lobby', // 'lobby', 'countdown', 'playing', 'ended'
-    countdownTimer: null, // Added: Holds remaining countdown seconds, or null
+    countdownTimer: null, // Holds remaining countdown seconds, or null
 };
-
 let players = {}; // { socketId: playerData }
 
 // --- State Management Functions ---
 
+/** Creates initial state for a new player. */
 function initializePlayerState(socketId) {
     const initialLA = Config.INITIAL_LEAF_AREA;
     const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
@@ -27,34 +26,26 @@ function initializePlayerState(socketId) {
         id: socketId,
         // --- Attributes ---
         playerName: `Player_${socketId.substring(0, 4)}`,
-        leafColor: '#228B22',
-        trunkColor: '#8B4513',
+        leafColor: '#228B22', trunkColor: '#8B4513',
         spawnPoint: { x: 0, y: baseHeight, z: 0 }, // Default, updated later
-        isAlive: false,
-        hasChosenSpawn: false, // Added: Tracks if player selected a spawn point
+        isAlive: false, // Starts not alive
+        hasChosenSpawn: false,
+        isSpectator: false, // Defaults to false
         // --- Resources ---
-        carbonStorage: Config.INITIAL_CARBON,
-        hydraulicSafety: Math.min(Config.INITIAL_HYDRAULICS, maxHydraulic),
-        maxHydraulic: maxHydraulic,
+        carbonStorage: Config.INITIAL_CARBON, hydraulicSafety: Math.min(Config.INITIAL_HYDRAULICS, maxHydraulic), maxHydraulic: maxHydraulic,
         // --- Size & Structure ---
-        currentLA: initialLA,
-        effectiveLA: initialLA,
-        trunkHeight: Config.INITIAL_TRUNK_HEIGHT,
-        trunkWidth: Math.sqrt(initialLA * Config.k_TA_LA_RATIO),
-        trunkDepth: Math.sqrt(initialLA * Config.k_TA_LA_RATIO),
+        currentLA: initialLA, effectiveLA: initialLA, trunkHeight: Config.INITIAL_TRUNK_HEIGHT,
+        trunkWidth: Math.sqrt(initialLA * Config.k_TA_LA_RATIO), trunkDepth: Math.sqrt(initialLA * Config.k_TA_LA_RATIO),
         // --- Status & Output ---
-        seedCount: 0,
-        damagedLAPercentage: 0,
+        seedCount: 0, damagedLAPercentage: 0,
         // --- Inputs (Server authoritative) ---
-        stomatalConductance: 0.5,
-        lastSavingsPercent: 50,
-        lastGrowthRatioPercent: 50,
+        stomatalConductance: 0.5, lastSavingsPercent: 50, lastGrowthRatioPercent: 50,
         // --- Internal Sim State ---
-        foliarUptakeAppliedThisNight: false,
-        growthAppliedThisCycle: false,
+        foliarUptakeAppliedThisNight: false, growthAppliedThisCycle: false,
     };
 }
 
+/** Adds a new player to the state. */
 export function addPlayer(socketId) {
     if (!players[socketId]) {
         players[socketId] = initializePlayerState(socketId);
@@ -64,6 +55,7 @@ export function addPlayer(socketId) {
     }
 }
 
+/** Removes a player from the state. */
 export function removePlayer(socketId) {
     if (players[socketId]) {
         delete players[socketId];
@@ -73,52 +65,43 @@ export function removePlayer(socketId) {
     return false;
 }
 
+/** Retrieves state for a specific player. */
 export function getPlayerState(socketId) {
     return players[socketId] || null;
 }
 
+/** Retrieves the entire players object. */
 export function getAllPlayers() {
     return players;
 }
 
+/** Retrieves the global game state object. */
 export function getGlobalState() {
     return globalGameState;
 }
 
-/**
- * Updates specific properties of the global state.
- * @param {object} updates - An object containing key-value pairs to update.
- */
+/** Updates specific properties of the global state. */
 export function updateGlobalState(updates) {
      Object.assign(globalGameState, updates);
-     // Example: updateGlobalState({ countdownTimer: 29, gamePhase: 'countdown' })
 }
 
+/** Sets the current game phase. */
 export function setGamePhase(phase) {
     if (['lobby', 'countdown', 'playing', 'ended'].includes(phase)) {
         if (globalGameState.gamePhase !== phase) {
              console.log(`GameState: Changing phase from ${globalGameState.gamePhase} to ${phase}`);
              globalGameState.gamePhase = phase;
-             // Reset countdown timer when leaving countdown phase
-             if (phase !== 'countdown') {
-                 globalGameState.countdownTimer = null;
-             }
+             if (phase !== 'countdown') globalGameState.countdownTimer = null; // Reset timer unless entering countdown
         }
-    } else {
-        console.error(`GameState: Invalid game phase specified: ${phase}`);
-    }
+    } else { console.error(`GameState: Invalid phase: ${phase}`); }
 }
 
-
+/** Resets global state variables to defaults. */
 export function resetGlobalStateValues() {
-     console.log("GameState: Resetting global state values...");
-     globalGameState.day = 1;
-     globalGameState.timeInCycle = 0.0;
-     globalGameState.currentPeriodIndex = -1;
-     globalGameState.isNight = false;
-     globalGameState.currentLightMultiplier = Config.LIGHT_MULT_SUNNY;
-     globalGameState.currentDroughtFactor = Config.DROUGHT_MULT_BASE;
-     globalGameState.isRaining = false;
-     globalGameState.gamePhase = 'lobby';
-     globalGameState.countdownTimer = null; // Ensure timer is reset
+     console.log("GameState: Resetting global values...");
+     Object.assign(globalGameState, {
+        day: 1, timeInCycle: 0.0, currentPeriodIndex: -1, isNight: false,
+        currentLightMultiplier: Config.LIGHT_MULT_SUNNY, currentDroughtFactor: Config.DROUGHT_MULT_BASE,
+        isRaining: false, gamePhase: 'lobby', countdownTimer: null
+     });
 }

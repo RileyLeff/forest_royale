@@ -1,8 +1,5 @@
 // client/ui/elements.js
-// Caches and exports references to all UI DOM elements.
-
 export let uiElements = {};
-
 export function cacheDOMElements() {
     console.log("UI: Caching DOM elements...");
     uiElements = {
@@ -25,9 +22,10 @@ export function cacheDOMElements() {
         // Top Right Elements
         leaderboardTitleUI: document.getElementById('leaderboard-title'), // Title element
         leaderboardListUI: document.getElementById('leaderboard-list'),
-        treeCountUI: document.getElementById('tree-count'), // Inside title now
+        // treeCountUI: document.getElementById('tree-count'), // Removed, integrated into title
 
         // Bottom Left Elements
+        bottomLeftStatus: document.getElementById('bottom-left-status'), // <<< ID for the whole panel
         carbonBar: document.getElementById('carbon-bar'),
         hydraulicBar: document.getElementById('hydraulic-bar'),
         carbonValueUI: document.getElementById('carbon-value'),
@@ -52,22 +50,5 @@ export function cacheDOMElements() {
     };
 
      // Verification log
-     let foundCount = 0;
-     let missing = [];
-     for (const key in uiElements) {
-         if (uiElements[key]) {
-             foundCount++;
-         } else {
-             // Only warn for elements expected to exist on game page
-             if (document.getElementById('game-canvas')) { // Simple check if we are on game page
-                 console.warn(`UI element not found: ${key}`);
-                 missing.push(key);
-             }
-         }
-     }
-     if (document.getElementById('game-canvas')) {
-         console.log(`UI: Cached ${foundCount} game DOM elements. Missing: ${missing.length > 0 ? missing.join(', ') : 'None'}`);
-     } else {
-          console.log(`UI: Cached ${foundCount} DOM elements (non-game page).`);
-     }
+     let foundCount = 0; let missing = []; for (const key in uiElements) { if (uiElements[key]) { foundCount++; } else { if (document.getElementById('game-canvas')) { console.warn(`UI element not found: ${key}`); missing.push(key); } } } if (document.getElementById('game-canvas')) { console.log(`UI: Cached ${foundCount} game DOM elements. Missing: ${missing.length > 0 ? missing.join(', ') : 'None'}`); } else { console.log(`UI: Cached ${foundCount} DOM elements (non-game page).`); }
 }

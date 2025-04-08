@@ -28,7 +28,7 @@
              <h4>Lobby</h4>
              <p>Players (<span id="lobby-player-count">0</span>)</p>
              <p id="countdown-timer-display" style="font-weight: bold; color: #ffc107;"></p> <!-- Timer display -->
-             <button id="start-countdown-button" style="margin-top: 5px;">Start Game Countdown</button>
+             <button id="start-countdown-button" style="margin-top: 5px;">Start Countdown</button> <!-- Text updated by JS -->
          </div>
 
     </div>
@@ -36,23 +36,22 @@
      <!-- Top Right Leaderboard Area -->
     <div id="top-right-leaderboard" class="ui-panel leaderboard">
          <!-- Title changes based on phase -->
-         <h4 id="leaderboard-title">Leaderboard (<span id="tree-count">0</span> Remaining)</h4>
+         <h4 id="leaderboard-title">Leaderboard (-/-)</h4> <!-- Updated placeholder -->
          <ul id="leaderboard-list">
              <li>Waiting for state...</li>
          </ul>
     </div>
 
      <!-- Bottom Left Status Area -->
-     <div id="bottom-left-status" class="ui-panel">
-          <!-- ... status bars and seed count as before ... -->
-           <div class="status-bar-container">
+     <div id="bottom-left-status" class="ui-panel"> <!-- <<< Ensure this ID is present -->
+          <div class="status-bar-container">
                 <label>Carbon:</label>
-                <div class="bar-outer"><div id="carbon-bar" class="bar-inner carbon"></div></div>
+                <div class="bar-outer"><div id="carbon-bar" class="bar-inner carbon" style="width: 0%;"></div></div> <!-- Start at 0% -->
                 <span id="carbon-value">--</span>
             </div>
             <div class="status-bar-container">
                 <label>Hydraulics:</label>
-                <div class="bar-outer"><div id="hydraulic-bar" class="bar-inner hydraulic"></div></div>
+                <div class="bar-outer"><div id="hydraulic-bar" class="bar-inner hydraulic" style="width: 0%;"></div></div> <!-- Start at 0% -->
                  <span id="hydraulic-value">--</span>
             </div>
              <p>Seeds: <span id="seed-counter">0</span></p>
@@ -60,8 +59,7 @@
 
      <!-- Control Panel Area (Bottom Right) -->
      <div id="control-panel-right" class="ui-panel" style="display: none;"> <!-- Start hidden -->
-          <!-- ... controls as before ... -->
-            <div class="control-row stomata">
+          <div class="control-row stomata">
              <label for="stomata-slider">Stomatal Openness:</label>
              <input type="range" id="stomata-slider" min="0" max="1" step="0.05" value="0.5">
              <span id="stomata-value">50%</span>
@@ -72,7 +70,7 @@
              <span class="slider-percentage" id="savings-percentage">50%</span>
           </div>
            <div class="control-row allocation">
-             <label for="growth-ratio-slider"> Invest % Grow/Seeds:</label> <!-- Changed label -->
+             <label for="growth-ratio-slider"> Invest % Grow/Seeds:</label>
              <input type="range" id="growth-ratio-slider" min="0" max="100" step="1" value="50">
              <span class="slider-percentage" id="growth-ratio-percentage">50%/50%</span>
           </div>
@@ -88,15 +86,7 @@
     </div>
 
     <!-- Imports -->
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
-
+    <script type="importmap"> { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } } </script>
     <script src="/socket.io/socket.io.js"></script>
     <script type="module" src="/main.js"></script> <!-- Use root-relative path -->
 </body>

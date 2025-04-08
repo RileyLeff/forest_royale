@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Forest Royale - Admin Panel</title>
+    <!-- Link to shared stylesheet -->
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        /* Admin specific styles */
+        #admin-controls {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(150, 0, 0, 0.7);
+            border: 1px solid #ff0000;
+            padding: 15px;
+            border-radius: 8px;
+            z-index: 20; /* Above other UI panels */
+            display: flex;
+            gap: 10px;
+        }
+        #admin-controls button {
+            background-color: #a00;
+            color: white;
+            border: 1px solid #f00;
+            padding: 8px 15px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+         #admin-controls button:hover {
+             background-color: #d00;
+         }
+         /* Ensure game container takes full space */
+         #game-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
+         #game-canvas { display: block; width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <!-- Game View Container -->
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+    </div>
+
+    <!-- Informational UI Panels (Similar to game.html, but no player status/controls) -->
+    <div id="top-left-info" class="ui-panel">
+         <p>Day: <span id="day-counter">1</span></p>
+         <p>Time: <span id="time-of-day">Loading...</span></p>
+         <p>Weather: <span id="weather-status">--</span></p>
+         <p>Cycle Left: <span id="cycle-timer">--</span>s</p>
+         <div id="message-log" class="message">ADMIN VIEW</div> <!-- Indicate admin view -->
+         <!-- Lobby/Countdown Info -->
+         <div id="lobby-info" style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #555;">
+             <h4>Lobby</h4>
+             <p>Players (<span id="lobby-player-count">0</span>)</p>
+             <p id="countdown-timer-display" style="font-weight: bold; color: #ffc107;"></p>
+             <!-- No start button needed here -->
+         </div>
+    </div>
+
+    <div id="top-right-leaderboard" class="ui-panel leaderboard">
+         <h4 id="leaderboard-title">Leaderboard (-/-)</h4>
+         <ul id="leaderboard-list">
+             <li>Waiting for state...</li>
+         </ul>
+    </div>
+
+    <!-- Admin Controls Panel -->
+    <div id="admin-controls" class="ui-panel">
+        <button id="admin-force-start">Force Start</button>
+        <button id="admin-force-end">Force End</button>
+        <button id="admin-reset-countdown">Reset Countdown</button>
+        <!-- Add more controls later if needed -->
+    </div>
+
+
+    <!-- Game Over Modal (reuse from game.html structure) -->
+     <div id="game-over-modal" class="modal hidden">
+         <h2>Game Over!</h2>
+        <p id="game-over-reason"></p>
+        <p>Game ended by admin or naturally.</p> <!-- Generic message -->
+        <!-- No Play Again button needed for admin? Or maybe a 'Reset Server State' button? -->
+        <button id="admin-close-modal">Close</button>
+    </div>
+
+
+    <!-- Imports -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script src="/socket.io/socket.io.js"></script>
+    <!-- Link to NEW Admin JS file -->
+    <script type="module" src="/admin.js"></script>
+</body>
+</html>

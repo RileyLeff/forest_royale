@@ -3,6 +3,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     const singlePlayerButton = document.getElementById('start-single-player');
     const multiPlayerButton = document.getElementById('start-multi-player');
+    const spectateButton = document.getElementById('spectate-game'); // Get spectate button
     const settingsButton = document.getElementById('open-settings');
 
     // Function to set mode and navigate
@@ -19,13 +20,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (multiPlayerButton) {
-        // Enable the button now
-        multiPlayerButton.disabled = false;
-        multiPlayerButton.textContent = 'Multiplayer'; // Update text if needed
-
+        multiPlayerButton.disabled = false; // Ensure enabled
+        multiPlayerButton.textContent = 'Multiplayer';
         multiPlayerButton.addEventListener('click', () => {
              startGame('multi');
         });
+    }
+
+    // Add listener for spectate button
+    if (spectateButton) {
+         spectateButton.addEventListener('click', () => {
+             startGame('spectate');
+         });
     }
 
     if (settingsButton) {

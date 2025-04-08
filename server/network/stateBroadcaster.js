@@ -7,30 +7,24 @@ function getSimplifiedGameStateSnapshot(players, globalState) {
             id: p.id,
             playerName: p.playerName,
             isAlive: p.isAlive,
-            hasChosenSpawn: p.hasChosenSpawn, // Include spawn status for lobby UI
-            carbonStorage: p.carbonStorage,
-            hydraulicSafety: p.hydraulicSafety,
-            maxHydraulic: p.maxHydraulic,
-            currentLA: p.currentLA,
-            trunkHeight: p.trunkHeight,
-            damagedLAPercentage: p.damagedLAPercentage,
-            seedCount: p.seedCount,
-            spawnPoint: p.spawnPoint
+            hasChosenSpawn: p.hasChosenSpawn,
+            isSpectator: p.isSpectator, // <<< Include spectator status
+            // Resources
+            carbonStorage: p.carbonStorage, hydraulicSafety: p.hydraulicSafety, maxHydraulic: p.maxHydraulic,
+            // Visual state
+            currentLA: p.currentLA, trunkHeight: p.trunkHeight, damagedLAPercentage: p.damagedLAPercentage,
+            // Score & Position
+            seedCount: p.seedCount, spawnPoint: p.spawnPoint
         };
     });
 
     return {
         // Global environment
-        day: globalState.day,
-        timeInCycle: globalState.timeInCycle,
-        currentPeriodIndex: globalState.currentPeriodIndex,
-        isNight: globalState.isNight,
-        currentLightMultiplier: globalState.currentLightMultiplier,
-        currentDroughtFactor: globalState.currentDroughtFactor,
+        day: globalState.day, timeInCycle: globalState.timeInCycle, currentPeriodIndex: globalState.currentPeriodIndex,
+        isNight: globalState.isNight, currentLightMultiplier: globalState.currentLightMultiplier, currentDroughtFactor: globalState.currentDroughtFactor,
         isRaining: globalState.isRaining,
         // Game Phase & Countdown
-        gamePhase: globalState.gamePhase,
-        countdownTimer: globalState.countdownTimer, // Include countdown timer
+        gamePhase: globalState.gamePhase, countdownTimer: globalState.countdownTimer,
         // Player states
         players: playersSnapshot,
         serverTime: Date.now()
