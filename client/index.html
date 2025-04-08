@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Island Canopy Sim - Welcome</title>
+    <title>Forest Royale - Welcome</title> <!-- Changed title -->
     <link rel="stylesheet" href="/style.css"> <!-- Root relative path -->
     <style>
         /* Basic Landing Page Specific Styles */
@@ -20,10 +20,18 @@
         .button-group { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; }
         button {
             padding: 12px 25px; font-size: 1.1em; cursor: pointer; border: none; border-radius: 5px;
-            background-color: #556b2f; color: #f0f0f0; transition: background-color 0.3s ease;
+            background-color: #556b2f; /* Dark Olive Green */
+            color: #f0f0f0; transition: background-color 0.3s ease;
         }
-        button:hover:not(:disabled) { background-color: #6b8e23; }
+        button:hover:not(:disabled) { background-color: #6b8e23; } /* Olive Drab */
         button:disabled { background-color: #4a4a4a; color: #888; cursor: not-allowed; }
+        /* Style for admin button */
+        #admin-panel-button {
+            background-color: #8B4513; /* Saddle Brown - distinct color */
+        }
+        #admin-panel-button:hover {
+            background-color: #A0522D; /* Sienna */
+        }
     </style>
 </head>
 <body>
@@ -34,9 +42,10 @@
         <div class="button-group">
             <button id="start-single-player">Single Player</button>
             <button id="start-multi-player">Multiplayer</button>
-            <!-- Add Spectate Button -->
             <button id="spectate-game">Spectate Game</button>
             <button id="open-settings">Settings</button>
+            <!-- +++ Add Admin Panel Button +++ -->
+            <button id="admin-panel-button">Admin Panel</button>
         </div>
     </div>
 
