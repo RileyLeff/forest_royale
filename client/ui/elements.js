@@ -6,6 +6,9 @@ export function cacheDOMElements() {
         gameContainer: document.getElementById('game-container'),
         canvas: document.getElementById('game-canvas'),
 
+        // +++ Add Back Button +++
+        backButton: document.getElementById('back-to-menu-button'),
+
         // Top Left Elements
         dayCounterUI: document.getElementById('day-counter'),
         timeOfDayUI: document.getElementById('time-of-day'),
@@ -15,18 +18,16 @@ export function cacheDOMElements() {
         // Lobby Elements
         lobbyInfoPanel: document.getElementById('lobby-info'), // Container
         lobbyPlayerCountUI: document.getElementById('lobby-player-count'),
-        lobbyInstructionUI: document.getElementById('lobby-instruction'), // <<< Added instruction element
+        lobbyInstructionUI: document.getElementById('lobby-instruction'), // Added previously
         countdownTimerDisplayUI: document.getElementById('countdown-timer-display'),
         startCountdownButton: document.getElementById('start-countdown-button'),
 
-
         // Top Right Elements
-        leaderboardTitleUI: document.getElementById('leaderboard-title'), // Title element
+        leaderboardTitleUI: document.getElementById('leaderboard-title'),
         leaderboardListUI: document.getElementById('leaderboard-list'),
-        // treeCountUI: document.getElementById('tree-count'), // Removed, integrated into title
 
         // Bottom Left Elements
-        bottomLeftStatus: document.getElementById('bottom-left-status'), // <<< ID for the whole panel
+        bottomLeftStatus: document.getElementById('bottom-left-status'),
         carbonBar: document.getElementById('carbon-bar'),
         hydraulicBar: document.getElementById('hydraulic-bar'),
         carbonValueUI: document.getElementById('carbon-value'),
@@ -34,7 +35,7 @@ export function cacheDOMElements() {
         seedCounterUI: document.getElementById('seed-counter'),
 
         // Bottom Right Controls
-        controlPanelRight: document.getElementById('control-panel-right'), // Container
+        controlPanelRight: document.getElementById('control-panel-right'),
         stomataSlider: document.getElementById('stomata-slider'),
         stomataValueUI: document.getElementById('stomata-value'),
         savingsSlider: document.getElementById('savings-slider'),
@@ -48,8 +49,42 @@ export function cacheDOMElements() {
         finalDayUI: document.getElementById('final-day'),
         finalSeedsUI: document.getElementById('final-seeds'),
         restartButton: document.getElementById('restart-button'),
+
+        // Admin specific elements (might be null on game page)
+        adminControls: document.getElementById('admin-controls'),
+        adminCloseModalButton: document.getElementById('admin-close-modal'),
     };
 
      // Verification log
-     let foundCount = 0; let missing = []; for (const key in uiElements) { if (uiElements[key]) { foundCount++; } else { if (document.getElementById('game-canvas')) { console.warn(`UI element not found: ${key}`); missing.push(key); } } } if (document.getElementById('game-canvas')) { console.log(`UI: Cached ${foundCount} game DOM elements. Missing: ${missing.length > 0 ? missing.join(', ') : 'None'}`); } else { console.log(`UI: Cached ${foundCount} DOM elements (non-game page).`); }
+     let foundCount = 0; let missing = [];
+     const isGamePage = !!document.getElementById('start-countdown-button');
+     const isAdminPage = !!document.getElementById('admin-controls');
+
+     for (const key in uiElements) {
+         if (uiElements[key]) {
+             foundCount++;
+         } else {
+             // Refined checks to reduce noise based on page context
+             const isOptionalOnGame = ['adminControls', 'adminCloseModalButton'].includes(key);
+             const isOptionalOnAdmin = [
+                'lobbyInstructionUI', 'startCountdownButton', 'bottomLeftStatus', 'carbonBar', 'hydraulicBar',
+                'carbonValueUI', 'hydraulicValueUI', 'seedCounterUI', 'controlPanelRight', 'stomataSlider',
+                'stomataValueUI', 'savingsSlider', 'savingsPercentageUI', 'growthRatioSlider',
+                'growthRatioPercentageUI', 'finalDayUI', 'finalSeedsUI', 'restartButton'
+             ].includes(key);
+
+             if (isGamePage && !isOptionalOnGame && !uiElements[key]) {
+                 console.warn(`UI element not found (Game Page): ${key}`); missing.push(key);
+             } else if (isAdminPage && !isOptionalOnAdmin && !uiElements[key]) {
+                  console.warn(`UI element not found (Admin Page): ${key}`); missing.push(key);
+             } else if (!isGamePage && !isAdminPage && key !== 'gameContainer' && key !== 'canvas'){
+                 // Ignore missing elements on other pages (like index, settings)
+             }
+         }
+     }
+      if (isGamePage || isAdminPage) {
+          console.log(`UI: Cached ${foundCount} DOM elements. Missing: ${missing.length > 0 ? missing.join(', ') : 'None'}`);
+      } else {
+          console.log(`UI: Cached ${foundCount} DOM elements (non-game/admin page).`);
+      }
 }

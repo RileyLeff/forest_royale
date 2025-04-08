@@ -1,3 +1,4 @@
+--- FILE: client/admin.html ---
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,7 +19,7 @@
             padding: 15px;
             border-radius: 8px;
             z-index: 20; /* Above other UI panels */
-            display: flex;
+            display: flex; /* Changed from none to flex, JS will hide/show */
             gap: 10px;
         }
         #admin-controls button {
@@ -43,6 +44,12 @@
         <canvas id="game-canvas"></canvas>
     </div>
 
+    <!-- ================================== -->
+    <!-- +++ Back to Menu Button +++ -->
+    <!-- ================================== -->
+    <!-- Use same ID and class as game.html for consistency -->
+    <button id="back-to-menu-button" class="back-button">Back to Menu</button>
+
     <!-- Informational UI Panels (Similar to game.html, but no player status/controls) -->
     <div id="top-left-info" class="ui-panel">
          <p>Day: <span id="day-counter">1</span></p>
@@ -56,6 +63,7 @@
              <p>Players (<span id="lobby-player-count">0</span>)</p>
              <p id="countdown-timer-display" style="font-weight: bold; color: #ffc107;"></p>
              <!-- No start button needed here -->
+             <!-- No lobby instruction needed here -->
          </div>
     </div>
 
@@ -66,8 +74,8 @@
          </ul>
     </div>
 
-    <!-- Admin Controls Panel -->
-    <div id="admin-controls" class="ui-panel">
+    <!-- Admin Controls Panel (JS controls initial visibility based on auth) -->
+    <div id="admin-controls" class="ui-panel" style="display: none;">
         <button id="admin-force-start">Force Start</button>
         <button id="admin-force-end">Force End</button>
         <button id="admin-reset-countdown">Reset Countdown</button>
