@@ -281,3 +281,136 @@ input[type="color"] {
 /* Style admin close button differently if needed */
 #admin-close-modal { background-color: #8b4513; }
 #admin-close-modal:hover { background-color: #a0522d; }
+
+/* client/style.css */
+
+/* === Add this whole section at the END of your existing CSS === */
+
+/* === Responsive Design === */
+
+/* Target screens smaller than, say, 768px (tablets/large phones) */
+@media (max-width: 768px) {
+    .ui-panel {
+        /* Reduce padding slightly */
+        padding: 8px;
+        /* Slightly smaller base font */
+        font-size: 13px;
+        /* Allow panels to potentially take more width if needed */
+        min-width: 0; /* Remove fixed min-widths */
+    }
+
+    /* Reduce size/positioning of corners */
+    #top-left-info {
+        top: 5px;
+        left: 5px;
+        /* Maybe make it slightly narrower if leaderboard is wide */
+        max-width: 170px;
+    }
+    #top-right-leaderboard {
+        top: 5px;
+        right: 5px;
+        max-width: 160px; /* Narrower leaderboard */
+        max-height: 150px; /* Shorter leaderboard */
+    }
+    #bottom-left-status {
+        bottom: 5px;
+        left: 5px;
+        width: 180px; /* Narrower status */
+    }
+    #control-panel-right {
+        bottom: 5px;
+        right: 5px;
+        width: 180px; /* Narrower controls */
+        padding: 10px 8px; /* Tighter padding */
+        gap: 8px; /* Less gap */
+    }
+    .control-row label {
+        font-size: 0.8em; /* Smaller labels */
+    }
+    .control-row span {
+        font-size: 0.8em; /* Smaller percentages */
+    }
+    .back-button {
+        /* Move back button maybe below top-left? */
+        top: auto; /* Unset top */
+        bottom: 5px; /* Align with bottom panels */
+        /* Position it next to bottom-left, needs adjustment based on status width */
+        left: 190px; /* Example: 180px width + 10px gap */
+        padding: 5px 8px;
+        font-size: 0.8em;
+    }
+
+    /* Adjust font sizes within panels */
+    .ui-panel p, .ui-panel div, .ui-panel label, .ui-panel span, .ui-panel li {
+        font-size: 0.85em; /* Smaller text */
+        line-height: 1.3;
+    }
+    #top-right-leaderboard ul {
+        font-size: 0.8em; /* Even smaller list text */
+    }
+    #top-right-leaderboard li {
+        padding: 2px 4px;
+    }
+     #bottom-left-status label {
+        font-size: 0.8em;
+    }
+     #bottom-left-status span#carbon-value,
+     #bottom-left-status span#hydraulic-value {
+         font-size: 0.7em;
+         top: 16px; /* Adjust vertical position slightly */
+     }
+
+    /* Modal adjustments */
+    .modal {
+        padding: 20px;
+        min-width: 280px; /* Allow slightly smaller */
+    }
+    .modal h2 { font-size: 1.2em; }
+    .modal p { font-size: 0.9em; }
+    .modal button { font-size: 0.9em; padding: 8px 15px;}
+
+}
+
+/* Target even smaller screens (most phones) */
+@media (max-width: 480px) {
+    .ui-panel {
+        font-size: 11px; /* Even smaller base */
+        border-radius: 4px;
+    }
+
+    #top-left-info {
+        max-width: 140px; /* Further restrict width */
+    }
+    #top-right-leaderboard {
+        max-width: 130px; /* Further restrict width */
+        max-height: 120px; /* Further restrict height */
+    }
+    #bottom-left-status {
+         width: 150px; /* Further restrict width */
+         /* Optional: Stack status bars if needed */
+         /* display: flex; flex-direction: column; gap: 5px; */
+    }
+    #control-panel-right {
+         width: 150px; /* Further restrict width */
+         gap: 6px;
+    }
+     .bar-outer { height: 12px; } /* Slimmer bars */
+     #bottom-left-status span#carbon-value,
+     #bottom-left-status span#hydraulic-value {
+         line-height: 12px; /* Match slimmer bar */
+         top: 15px;
+     }
+
+     .back-button {
+         left: 160px; /* Adjust based on new status width */
+         padding: 4px 6px;
+     }
+
+     /* Further reduce text sizes */
+    .ui-panel p, .ui-panel div, .ui-panel label, .ui-panel span, .ui-panel li {
+        font-size: 0.8em;
+    }
+     #top-right-leaderboard li { padding: 1px 3px; }
+     .control-row label { font-size: 0.75em; }
+     .control-row span { font-size: 0.75em; }
+}
