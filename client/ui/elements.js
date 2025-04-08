@@ -15,6 +15,7 @@ export function cacheDOMElements() {
         // Lobby Elements
         lobbyInfoPanel: document.getElementById('lobby-info'), // Container
         lobbyPlayerCountUI: document.getElementById('lobby-player-count'),
+        lobbyInstructionUI: document.getElementById('lobby-instruction'), // <<< Added instruction element
         countdownTimerDisplayUI: document.getElementById('countdown-timer-display'),
         startCountdownButton: document.getElementById('start-countdown-button'),
 

@@ -61,13 +61,31 @@ export function updateUI() {
 
     // --- Update Lobby/Countdown UI (Top Left) ---
     if (uiElements.lobbyInfoPanel) {
-        // Show only if NOT spectator AND in lobby/countdown
-        const showLobby = !isSpectator && (phase === 'lobby' || phase === 'countdown');
-        uiElements.lobbyInfoPanel.style.display = showLobby ? 'block' : 'none';
-        if (showLobby) {
+        // Show lobby panel only if NOT spectator AND in lobby/countdown
+        const showLobbyPanel = !isSpectator && (phase === 'lobby' || phase === 'countdown');
+        uiElements.lobbyInfoPanel.style.display = showLobbyPanel ? 'block' : 'none';
+
+        if (showLobbyPanel) {
             if (uiElements.lobbyPlayerCountUI) uiElements.lobbyPlayerCountUI.textContent = Object.keys(allConnections).length; // Show total connections in lobby
+
+            // Control visibility of lobby instruction
+            if (uiElements.lobbyInstructionUI) {
+                uiElements.lobbyInstructionUI.style.display = (phase === 'lobby') ? 'block' : 'none'; // Show only in lobby
+            }
+
             if (uiElements.startCountdownButton) { uiElements.startCountdownButton.disabled = (phase === 'countdown'); uiElements.startCountdownButton.textContent = (phase === 'countdown') ? 'Countdown...' : 'Start Countdown'; }
-            if (uiElements.countdownTimerDisplayUI) { if (phase === 'countdown' && gameState.countdownTimer !== null) { uiElements.countdownTimerDisplayUI.textContent = `Starting in: ${gameState.countdownTimer}s`; uiElements.countdownTimerDisplayUI.style.display = 'block'; } else { uiElements.countdownTimerDisplayUI.style.display = 'none'; } }
+
+            // --- Countdown Timer Display ---
+            if (uiElements.countdownTimerDisplayUI) {
+                if (phase === 'countdown' && gameState.countdownTimer !== null && gameState.countdownTimer >= 0) { // Check >= 0
+                    // +++ Add Debug Log +++
+                    // console.log(`UI Update: Countdown phase, timer value: ${gameState.countdownTimer}`);
+                    uiElements.countdownTimerDisplayUI.textContent = `Starting in: ${gameState.countdownTimer}s`;
+                    uiElements.countdownTimerDisplayUI.style.display = 'block';
+                } else {
+                    uiElements.countdownTimerDisplayUI.style.display = 'none';
+                }
+            }
          }
     }
 
@@ -105,7 +123,7 @@ export function updateUI() {
             let status = '';
             // Determine status based on phase (already filtered spectators)
             if (phase === 'playing' || phase === 'ended') status = player.isAlive ? '' : ' (Dead)';
-            else if (phase === 'lobby' || phase === 'countdown') status = player.hasChosenSpawn ? ' (Placed)' : '';
+            else if (phase === 'lobby' || phase === 'countdown') status = player.hasChosenSpawn ? ' (Placed)' : ''; // Enhanced status
             const name = player.playerName || `Player ${player.id.substring(0,4)}`;
             const seeds = (phase === 'playing' || phase === 'ended') ? `: ${player.seedCount} Seeds` : '';
             listHTML += `<li${isMe ? ' style="font-weight: bold;"' : ''}>${name}${status}${seeds}</li>`;
