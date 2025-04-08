@@ -1,5 +1,3 @@
---- FILE: client/main.js ---
-
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'; // Keep if OrbitControls is used here
 import { gameState, loadClientSettings, getMyPlayerState } from './gameState.js';
