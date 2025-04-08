@@ -1,13 +1,11 @@
-// sceneSetup.js
+// client/sceneSetup.js
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as Config from './config.js';
-// Import environment initializers
 import { createStars, createRainSystem } from './environment.js';
 
-// Exports for use by other modules
 export let scene;
-export let camera; // Export camera for potential use (e.g., rain relative positioning)
+export let camera;
 export let renderer;
 export let controls;
 export let sunLight;
@@ -19,6 +17,7 @@ export function initScene(canvas) {
     scene.background = new THREE.Color(0x87ceeb); // Initial color, environment.js will update
 
     // Fog setup - Use client config values if available, otherwise provide defaults
+    // Note: Config constants FOG_DAY_NEAR/FAR are commented out in client/config.js, so provide defaults here.
     const fogNear = Config.FOG_DAY_NEAR !== undefined ? Config.FOG_DAY_NEAR : 50;
     const fogFar = Config.FOG_DAY_FAR !== undefined ? Config.FOG_DAY_FAR : 150;
     scene.fog = new THREE.Fog(0x87ceeb, fogNear, fogFar); // environment.js will update color and distances
@@ -53,7 +52,7 @@ export function initScene(canvas) {
     sunLight.shadow.camera.top = shadowCamSize;
     sunLight.shadow.camera.bottom = -shadowCamSize;
     scene.add(sunLight);
-    scene.add(sunLight.target);
+    scene.add(sunLight.target); // Target is needed for directional light shadows
 
     // Controls setup
     controls = new OrbitControls(camera, renderer.domElement);
@@ -61,12 +60,12 @@ export function initScene(canvas) {
     controls.dampingFactor = 0.05;
     // Use client config for initial target height
     controls.target.set(0, (Config.INITIAL_TRUNK_HEIGHT || 2) / 2, 0); // Use fallback
-    controls.maxPolarAngle = Math.PI / 2 - 0.1;
-    controls.minDistance = 5;
-    controls.maxDistance = 100;
+    controls.maxPolarAngle = Math.PI / 2 - 0.1; // Prevent looking straight down/up too far
+    controls.minDistance = 5;  // Prevent zooming too close
+    controls.maxDistance = 100; // Prevent zooming too far out
 
     // Static Environment Meshes (Island, Water)
-    createEnvironment();
+    createEnvironment(); // <<< This function creates the island
 
     // Initialize Dynamic Environment Effects (Stars, Rain)
     createStars();
@@ -87,15 +86,19 @@ function createEnvironment() {
 
     // Island
     const islandGeometry = new THREE.CylinderGeometry(islandRadius, islandRadius, islandLevel * 2, 32);
-    const islandMaterial = new THREE.MeshStandardMaterial({ color: 0x967969 });
+    const islandMaterial = new THREE.MeshStandardMaterial({ color: 0x967969 }); // Brownish color
     const islandMesh = new THREE.Mesh(islandGeometry, islandMaterial);
-    islandMesh.position.y = islandLevel / 2; // Center it vertically slightly above water
+    islandMesh.position.y = islandLevel / 2; // Center it vertically around islandLevel
     islandMesh.receiveShadow = true;
+    // +++ Assign the name property +++
+    islandMesh.name = 'island'; // <<< ENSURE THIS LINE IS PRESENT
+    // ++++++++++++++++++++++++++++++++
     scene.add(islandMesh);
+    console.log(`SCENESETUP: Island mesh created and added with name: ${islandMesh.name}`); // Add log
 
     // Water
-    console.log(`SCENESETUP: Creating water with radius factor based on ISLAND_RADIUS: ${islandRadius}`); // <<< ADD LOG
-    const waterGeometry = new THREE.PlaneGeometry(islandRadius * 4, islandRadius * 4);
+    console.log(`SCENESETUP: Creating water with radius factor based on ISLAND_RADIUS: ${islandRadius}`);
+    const waterGeometry = new THREE.PlaneGeometry(islandRadius * 4, islandRadius * 4); // Large plane
     const waterMaterial = new THREE.MeshStandardMaterial({
         color: 0x4682B4, // Steel blue
         transparent: true,
@@ -104,10 +107,10 @@ function createEnvironment() {
         metalness: 0.1,
     });
     const waterMesh = new THREE.Mesh(waterGeometry, waterMaterial);
-    waterMesh.rotation.x = -Math.PI / 2;
-    waterMesh.position.y = waterLevel; // Position at water level
-    console.log(`SCENESETUP: Water mesh Y position: ${waterMesh.position.y}`); // <<< ADD LOG
-    waterMesh.receiveShadow = true; // Water can receive shadows
+    waterMesh.rotation.x = -Math.PI / 2; // Rotate flat
+    waterMesh.position.y = waterLevel;   // Position at water level
+    console.log(`SCENESETUP: Water mesh Y position: ${waterMesh.position.y}`);
+    waterMesh.receiveShadow = true; // Water can receive shadows (e.g., from trees)
     scene.add(waterMesh);
 }
 
