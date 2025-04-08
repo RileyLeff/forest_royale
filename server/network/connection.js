@@ -1,10 +1,9 @@
 // server/network/connection.js
-import { addPlayer, removePlayer, getGlobalState, getAllPlayers, setGamePhase, getPlayerState, resetGlobalStateValues } from '../game/GameState.js';
+import { addPlayer, removePlayer, getGlobalState, getAllPlayers, setGamePhase, getPlayerState, updateGlobalState } from '../game/GameState.js';
 import { getFullGameStateSnapshot } from './stateBroadcaster.js';
-// Import game logic and simulation control that might be needed on connect/disconnect
-import { startGame, stopSimulation } from '../server.js'; // Import start/stop from main server file
-import { resetGame, endGame } from '../game/gameLogic.js';
-import * as Config from '../config.js'; // For player initialization details like ISLAND_LEVEL
+import { stopSimulation } from '../server.js'; // Only need stopSimulation here maybe
+import { resetGame, startLobbyCountdown, cancelLobbyCountdown } from '../game/gameLogic.js';
+import * as Config from '../config.js';
 
 /**
  * Sets up event listeners for a newly connected socket.
@@ -18,77 +17,70 @@ export function handleConnection(socket, io) {
 
     const currentPhase = getGlobalState().gamePhase;
     const playerCount = Object.keys(getAllPlayers()).length;
-    const playerState = getPlayerState(socket.id); // Get the newly initialized state
+    const playerState = getPlayerState(socket.id);
 
-    // --- Single-Player Start Logic ---
-    // If the game is over or in lobby, and this is the first player connecting, start a new game.
-    if ((currentPhase === 'lobby' || currentPhase === 'ended') && playerCount === 1) {
-        console.log(`Connection: First player (${socket.id}) joined. Starting single-player game.`);
-
-        resetGame(); // Reset global state AND stop any lingering simulation
-
-        // Player should already be added by addPlayer, now configure for start
-        if (playerState) {
-            playerState.isAlive = true;
-            // Use server config for initial spawn height
-            const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
-            playerState.spawnPoint = { x: 0, y: baseHeight, z: 0 }; // Center spawn
-            setGamePhase('playing'); // Set phase AFTER reset
-            console.log(`Connection: Player ${socket.id} marked alive.`);
-
-            // Send initial state immediately *after* setting phase and player state
-            socket.emit('gameStateUpdate', getFullGameStateSnapshot(getAllPlayers(), getGlobalState()));
-
-            startGame(); // Start the simulation loop (exported from server.js)
-        } else {
-             console.error(`Connection: Could not find player state for ${socket.id} after adding!`);
-             // Handle error - maybe disconnect?
-        }
-
-    }
-    // --- Joining Mid-Game / Multiplayer Lobby ---
-    else if (currentPhase === 'playing') {
-        // Handle joining a game already in progress
+    // --- Player Joining Logic ---
+    if (currentPhase === 'playing') {
+        // Joining mid-game
         console.log(`Connection: Player ${socket.id} joined mid-game. Setting as observer/dead.`);
-        if (playerState) {
-             playerState.isAlive = false; // Join as non-alive for now
-             // TODO: Implement spectator logic later
-        }
+        if (playerState) playerState.isAlive = false;
         socket.emit('gameStateUpdate', getFullGameStateSnapshot(getAllPlayers(), getGlobalState()));
-
     } else {
-        // Handle joining lobby when others are present, or other states
-        console.log(`Connection: Player ${socket.id} joined. Phase: ${currentPhase}, Players: ${playerCount}`);
-         if (playerState) {
-             playerState.isAlive = false; // Ensure not alive if joining lobby/ended phase
+        // Joining lobby or ended game
+        console.log(`Connection: Player ${socket.id} joined lobby/ended phase. Phase: ${currentPhase}, Players: ${playerCount}`);
+        if (playerState) playerState.isAlive = false; // Ensure not alive
+        // If game just ended, we might need to reset it fully before player can join lobby properly
+        if (currentPhase === 'ended' && playerCount === 1) {
+            console.log("Connection: First player joined after end. Resetting game.");
+            resetGame(); // Reset to lobby state
         }
+         // Send current state (which might now be 'lobby' if reset)
         socket.emit('gameStateUpdate', getFullGameStateSnapshot(getAllPlayers(), getGlobalState()));
-         // TODO: Implement multiplayer lobby logic here later
+        // Broadcast to others that player joined lobby (use standard broadcast for simplicity now)
+        // io.emit('gameStateUpdate', getFullGameStateSnapshot(getAllPlayers(), getGlobalState())); // Handled by main loop broadcast
     }
 
+    // --- Listen for Client Actions ---
+
+    socket.on('requestStartCountdown', () => {
+        const requestingPlayer = getPlayerState(socket.id);
+        const currentPhase = getGlobalState().gamePhase;
+        console.log(`Connection: Received requestStartCountdown from ${socket.id}. Phase: ${currentPhase}`);
+        if (requestingPlayer && currentPhase === 'lobby') {
+             // Check other conditions? (e.g., min players?) - For now, any player can start
+             startLobbyCountdown(io); // Start the countdown
+        } else {
+            console.log(`Connection: Ignoring requestStartCountdown (player null or phase not lobby)`);
+        }
+    });
+
+    // TODO: Add listener for 'selectSpawnPoint' later
 
     // --- Setup Disconnect Listener ---
     socket.on('disconnect', () => {
         console.log(`Connection: Player disconnected: ${socket.id}`);
-        const wasRemoved = removePlayer(socket.id); // Remove player from state
+        const wasRemoved = removePlayer(socket.id);
 
         if (wasRemoved) {
-             io.emit('playerDisconnected', socket.id); // Inform other clients
+            io.emit('playerDisconnected', socket.id);
 
-            // Check if the last player left, reset if so
             const remainingPlayerCount = Object.keys(getAllPlayers()).length;
-            if (remainingPlayerCount === 0) {
-                console.log("Connection: Last player disconnected. Resetting game.");
-                // endGame needs access to players/global state *before* reset potentially
-                // But maybe just resetting is enough if game already ended or was lobby
-                 resetGame(); // Resets global state and stops simulation
+            const currentPhase = getGlobalState().gamePhase;
+
+            // If lobby/countdown becomes empty, cancel countdown and reset phase
+            if (remainingPlayerCount === 0 && (currentPhase === 'lobby' || currentPhase === 'countdown')) {
+                console.log("Connection: Lobby/Countdown empty. Resetting phase to lobby.");
+                 cancelLobbyCountdown();
+                 setGamePhase('lobby'); // Ensure it's lobby
+                 stopSimulation(); // Ensure sim is stopped
             }
+            // If playing game becomes empty, resetGame handles it
+            else if (remainingPlayerCount === 0 && (currentPhase === 'playing' || currentPhase === 'ended')) {
+                 console.log("Connection: Last player disconnected from active/ended game. Resetting game.");
+                 resetGame();
+            }
+             // If countdown was running but lobby not empty, just let it continue for now
+             // (Could optionally cancel if player count drops below minimum)
         }
     });
-
-    // --- Setup other event listeners (input, settings) ---
-    // socket.on('updateControls', (data) => handlePlayerInput(socket.id, data)); // Example
 }
-
-// --- TODO: Add handlers for player input events ---
-// function handlePlayerInput(socketId, data) { ... }

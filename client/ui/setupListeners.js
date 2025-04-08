@@ -1,35 +1,22 @@
-// ui/setupListeners.js
-// Sets up all necessary event listeners for UI elements.
-
-// Import the cached UI element references
+// client/ui/setupListeners.js
 import { uiElements } from './elements.js';
-
-// Import handler functions from other modules
-import { handleStomataChange, handleAllocationSliderChange } from './controlsHandlers.js'; // Adjust path if needed
-// Game Over modal is handled separately, but restart is triggered from main
-import { handleRestart } from '../main.js'; // Adjust path to go up one level
+import { handleStomataChange, handleAllocationSliderChange } from './controlsHandlers.js';
+import { handleRestart, socket } from '../main.js'; // Import socket
 
 /**
  * Attaches event listeners to the interactive UI elements.
- * Should be called once after elements are cached.
  */
 export function setupUIListeners() {
     console.log("UI: Setting up listeners...");
 
-    // Check essential elements exist before adding listeners
-    const essentialControls = [
-        uiElements.stomataSlider,
-        uiElements.savingsSlider,
-        uiElements.growthRatioSlider,
-        uiElements.restartButton
-    ];
-    if (essentialControls.some(el => !el)) {
+    // Check required elements using optional chaining for safety
+    if (!uiElements.stomataSlider || !uiElements.savingsSlider || !uiElements.growthRatioSlider || !uiElements.restartButton || !uiElements.startCountdownButton) {
         console.error("Cannot set up UI listeners - one or more essential controls missing!");
-        // Find which one is missing
         if (!uiElements.stomataSlider) console.error("- Stomata slider missing");
         if (!uiElements.savingsSlider) console.error("- Savings slider missing");
         if (!uiElements.growthRatioSlider) console.error("- Growth ratio slider missing");
         if (!uiElements.restartButton) console.error("- Restart button missing");
+        if (!uiElements.startCountdownButton) console.error("- Start Countdown button missing");
         return;
     }
 
@@ -38,10 +25,19 @@ export function setupUIListeners() {
     uiElements.savingsSlider.addEventListener('input', handleAllocationSliderChange);
     uiElements.growthRatioSlider.addEventListener('input', handleAllocationSliderChange);
 
-    // Restart Button (on Game Over Modal)
+    // Restart Button
     uiElements.restartButton.addEventListener('click', handleRestart);
 
-    // Add listeners for any other interactive elements here (e.g., leaderboard expand)
+    // Start Countdown Button
+    uiElements.startCountdownButton.addEventListener('click', () => {
+        console.log("UI: Start Countdown button clicked.");
+        if (socket && socket.connected) {
+             socket.emit('requestStartCountdown'); // Send event to server
+        } else {
+            console.error("UI: Cannot start countdown, socket not connected.");
+            // Maybe show an error message to the user
+        }
+    });
 
     console.log("UI: Listeners set up.");
 }

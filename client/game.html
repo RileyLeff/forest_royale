@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Island Canopy Sim</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css"> <!-- Use root-relative path -->
 </head>
 <body>
     <div id="game-container">
@@ -12,29 +12,40 @@
     </div>
 
     <!-- ================================== -->
-    <!-- NEW UI Structure -->
+    <!-- UI Structure -->
     <!-- ================================== -->
 
     <!-- Top Left Info Area -->
     <div id="top-left-info" class="ui-panel">
          <p>Day: <span id="day-counter">1</span></p>
-         <p>Time: <span id="time-of-day">Day</span></p>
-         <p>Weather: <span id="weather-status">Clear</span></p>
+         <p>Time: <span id="time-of-day">Loading...</span></p> <!-- Start with Loading -->
+         <p>Weather: <span id="weather-status">--</span></p>
          <p>Cycle Left: <span id="cycle-timer">--</span>s</p>
          <div id="message-log" class="message"></div>
+
+         <!-- Lobby/Countdown Specific UI (Initially Hidden) -->
+         <div id="lobby-info" style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #555;">
+             <h4>Lobby</h4>
+             <p>Players (<span id="lobby-player-count">0</span>)</p>
+             <p id="countdown-timer-display" style="font-weight: bold; color: #ffc107;"></p> <!-- Timer display -->
+             <button id="start-countdown-button" style="margin-top: 5px;">Start Game Countdown</button>
+         </div>
+
     </div>
 
      <!-- Top Right Leaderboard Area -->
     <div id="top-right-leaderboard" class="ui-panel leaderboard">
-         <h4>Trees Remaining: <span id="tree-count">1</span></h4>
+         <!-- Title changes based on phase -->
+         <h4 id="leaderboard-title">Leaderboard (<span id="tree-count">0</span> Remaining)</h4>
          <ul id="leaderboard-list">
-             <li>Player Name... Seeds: 0</li>
+             <li>Waiting for state...</li>
          </ul>
     </div>
 
      <!-- Bottom Left Status Area -->
      <div id="bottom-left-status" class="ui-panel">
-          <div class="status-bar-container">
+          <!-- ... status bars and seed count as before ... -->
+           <div class="status-bar-container">
                 <label>Carbon:</label>
                 <div class="bar-outer"><div id="carbon-bar" class="bar-inner carbon"></div></div>
                 <span id="carbon-value">--</span>
@@ -48,9 +59,9 @@
      </div>
 
      <!-- Control Panel Area (Bottom Right) -->
-     <div id="control-panel-right" class="ui-panel">
-          <!-- ++ Updated Label Text ++ -->
-          <div class="control-row stomata">
+     <div id="control-panel-right" class="ui-panel" style="display: none;"> <!-- Start hidden -->
+          <!-- ... controls as before ... -->
+            <div class="control-row stomata">
              <label for="stomata-slider">Stomatal Openness:</label>
              <input type="range" id="stomata-slider" min="0" max="1" step="0.05" value="0.5">
              <span id="stomata-value">50%</span>
@@ -65,14 +76,8 @@
              <input type="range" id="growth-ratio-slider" min="0" max="100" step="1" value="50">
              <span class="slider-percentage" id="growth-ratio-percentage">50%/50%</span>
           </div>
-          <!-- ++ End Updated Labels ++ -->
      </div>
      <!-- End Control Panel Area -->
-
-    <!-- ================================== -->
-    <!-- End NEW UI Structure                -->
-    <!-- ================================== -->
-
 
     <!-- Game Over Modal (Still separate) -->
     <div id="game-over-modal" class="modal hidden">
@@ -92,10 +97,7 @@
         }
     </script>
 
-    <!-- +++ ADD SOCKET.IO CLIENT LIBRARY +++ -->
     <script src="/socket.io/socket.io.js"></script>
-
-    <!-- Your Game Code -->
-    <script type="module" src="main.js"></script>
+    <script type="module" src="/main.js"></script> <!-- Use root-relative path -->
 </body>
 </html>

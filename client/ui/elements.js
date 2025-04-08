@@ -1,12 +1,10 @@
-// ui/elements.js
+// client/ui/elements.js
 // Caches and exports references to all UI DOM elements.
 
-// Object to hold all element references
 export let uiElements = {};
 
-// Function to grab all necessary DOM elements once
 export function cacheDOMElements() {
-    console.log("UI: Caching DOM elements..."); // Log caching start
+    console.log("UI: Caching DOM elements...");
     uiElements = {
         gameContainer: document.getElementById('game-container'),
         canvas: document.getElementById('game-canvas'),
@@ -17,10 +15,17 @@ export function cacheDOMElements() {
         weatherStatusUI: document.getElementById('weather-status'),
         cycleTimerUI: document.getElementById('cycle-timer'),
         messageLogUI: document.getElementById('message-log'),
+        // Lobby Elements
+        lobbyInfoPanel: document.getElementById('lobby-info'), // Container
+        lobbyPlayerCountUI: document.getElementById('lobby-player-count'),
+        countdownTimerDisplayUI: document.getElementById('countdown-timer-display'),
+        startCountdownButton: document.getElementById('start-countdown-button'),
+
 
         // Top Right Elements
+        leaderboardTitleUI: document.getElementById('leaderboard-title'), // Title element
         leaderboardListUI: document.getElementById('leaderboard-list'),
-        treeCountUI: document.getElementById('tree-count'),
+        treeCountUI: document.getElementById('tree-count'), // Inside title now
 
         // Bottom Left Elements
         carbonBar: document.getElementById('carbon-bar'),
@@ -29,7 +34,8 @@ export function cacheDOMElements() {
         hydraulicValueUI: document.getElementById('hydraulic-value'),
         seedCounterUI: document.getElementById('seed-counter'),
 
-        // Bottom Bar Controls
+        // Bottom Right Controls
+        controlPanelRight: document.getElementById('control-panel-right'), // Container
         stomataSlider: document.getElementById('stomata-slider'),
         stomataValueUI: document.getElementById('stomata-value'),
         savingsSlider: document.getElementById('savings-slider'),
@@ -43,9 +49,6 @@ export function cacheDOMElements() {
         finalDayUI: document.getElementById('final-day'),
         finalSeedsUI: document.getElementById('final-seeds'),
         restartButton: document.getElementById('restart-button'),
-
-        // Add any other elements referenced elsewhere if needed
-        // (e.g., if specific info spans inside allocation summary were kept)
     };
 
      // Verification log
@@ -55,13 +58,16 @@ export function cacheDOMElements() {
          if (uiElements[key]) {
              foundCount++;
          } else {
-             console.warn(`UI element not found: ${key}`);
-             missing.push(key);
+             // Only warn for elements expected to exist on game page
+             if (document.getElementById('game-canvas')) { // Simple check if we are on game page
+                 console.warn(`UI element not found: ${key}`);
+                 missing.push(key);
+             }
          }
      }
-     console.log(`UI: Cached ${foundCount} DOM elements. Missing: ${missing.length > 0 ? missing.join(', ') : 'None'}`);
-     // Could add a stricter check here if needed:
-     // if (missing.length > 0) throw new Error("Critical UI elements missing!");
+     if (document.getElementById('game-canvas')) {
+         console.log(`UI: Cached ${foundCount} game DOM elements. Missing: ${missing.length > 0 ? missing.join(', ') : 'None'}`);
+     } else {
+          console.log(`UI: Cached ${foundCount} DOM elements (non-game page).`);
+     }
 }
-
-// Note: cacheDOMElements() needs to be called once at startup (e.g., in main.js)
