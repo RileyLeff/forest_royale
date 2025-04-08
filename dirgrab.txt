@@ -1,14 +1,20 @@
 ---
 DIRECTORY STRUCTURE
 ---
+- .gitignore
 - README.md
 - config.js
+- environment.js
 - game.html
 - gameState.js
 - index.html
 - index.js
 - main.js
 - sceneSetup.js
+- server/
+  - config.js
+  - package.json
+  - server.js
 - settings.html
 - settings.js
 - simulation.js
@@ -22,43 +28,784 @@ DIRECTORY STRUCTURE
   - messageHandler.js
   - setupListeners.js
   - update.js
-- ui.js
 
 ---
 FILE CONTENTS
 ---
 
+--- FILE: main.js ---
+// main.js
+
+import * as THREE from 'three';
+// Import SPECIFIC functions/objects from gameState
+import { gameState, loadClientSettings, getMyPlayerState } from './gameState.js';
+import * as Config from './config.js';
+import { initScene, renderer, camera, controls, scene } from './sceneSetup.js';
+// Import NEW tree functions
+import { createOrUpdateTree, removeTree, disposeAllTrees } from './tree.js';
+// Import UI modules
+import { cacheDOMElements } from './ui/elements.js';
+import { setupUIListeners } from './ui/setupListeners.js';
+import { updateUI } from './ui/update.js';
+import { showMessage, clearMessage } from './ui/messageHandler.js';
+import { hideGameOverModal, showGameOverUI } from './ui/gameOver.js'; // Import showGameOverUI
+// Import simulation (we won't call it, but keep import for now if needed elsewhere)
+// import { updateSimulation } from './simulation.js';
+// Import environment update functions (will use server state)
+import { updateEnvironmentVisuals, updateRain, setWeatherTargets, startRain, stopRain } from './environment.js';
+
+// --- Global Variables ---
+let clock = new THREE.Clock();
+let animationFrameId = null;
+let socket = null; // Holds the socket connection
+
+// --- Initialization Function ---
+function initializeApp() {
+    console.log("Initializing Island Canopy Sim Client...");
+    loadClientSettings(); // Load player name/color prefs (placeholder)
+    cacheDOMElements();
+    const canvas = document.getElementById('game-canvas');
+    if (!canvas) { console.error("Canvas element #game-canvas not found!"); return; }
+
+    // Scene setup is independent of game state initially
+    initScene(canvas);
+
+    // --- Connect to Server ---
+    console.log("Attempting to connect to server...");
+    socket = io(); // Connect
+
+    // --- Socket Event Listeners ---
+    setupSocketListeners(); // Moved listeners to separate function
+
+    // UI Listeners are setup, but will need modification later
+    setupUIListeners();
+
+    // Initial UI state (will be quickly overridden by server)
+    updateUI();
+    clearMessage();
+
+    // Don't create local tree or start game loop until connected and state received
+    // createPlayerTree(); // REMOVED - Tree creation driven by server state
+    // startGameLoop(); // REMOVED - Started after first state received
+
+    console.log("Client Initialization complete. Waiting for server connection...");
+}
+
+// --- Socket Event Listener Setup ---
+function setupSocketListeners() {
+    socket.on('connect', () => {
+        gameState.myId = socket.id; // Store our own ID
+        console.log(`Connected to server with ID: ${gameState.myId}`);
+        showMessage(`Connected! Waiting for game state...`, 'info');
+        // We could send client settings (name, color) here if needed
+        // socket.emit('clientSettings', { name: gameState.playerName, leafColor: gameState.leafColor, ... });
+    });
+
+    socket.on('disconnect', (reason) => {
+        console.log(`Disconnected from server: ${reason}`);
+        showMessage("Disconnected from server!", "error");
+        gameState.myId = null;
+        gameState.initialStateReceived = false; // Reset flag
+        // Stop game loop if running
+        if (animationFrameId !== null) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+            console.log("Animation loop stopped due to disconnection.");
+        }
+        // Cleanup visual elements
+        disposeAllTrees();
+        // Could show a "Disconnected" overlay here
+    });
+
+    socket.on('connect_error', (error) => {
+        console.error('Connection Error:', error);
+        showMessage("Connection failed!", "error");
+    });
+
+    // --- Game State Update Handler ---
+    socket.on('gameStateUpdate', (serverState) => {
+        // console.log("Received gameStateUpdate:", serverState); // DEBUG - Can be very noisy
+
+        // --- Update Local Game State Cache ---
+        gameState.day = serverState.day;
+        gameState.timeInCycle = serverState.timeInCycle;
+        gameState.currentPeriodIndex = serverState.currentPeriodIndex;
+        gameState.isNight = serverState.isNight;
+        gameState.currentLightMultiplier = serverState.currentLightMultiplier;
+        gameState.currentDroughtFactor = serverState.currentDroughtFactor;
+        gameState.isRaining = serverState.isRaining;
+        gameState.gamePhase = serverState.gamePhase;
+        gameState.serverTime = serverState.serverTime;
+        // Store player data - overwrite existing players, add new ones
+        gameState.players = serverState.players;
+
+        // --- First Time Setup ---
+        if (!gameState.initialStateReceived) {
+            console.log("First gameStateUpdate received. Setting up initial scene.");
+            // Set initial camera target based on *our* player's initial state
+            const myInitialState = getMyPlayerState();
+            if (myInitialState && controls) {
+                const initialHeight = myInitialState.trunkHeight || Config.INITIAL_TRUNK_HEIGHT;
+                controls.target.set(0, initialHeight / 2, 0); // Default target for now
+                // TODO: Target player's actual spawn position once available
+                controls.update();
+            } else if (!myInitialState) {
+                 console.warn("My player state not found in first update!");
+            }
+             // Set initial weather without transition
+             setWeatherTargets(gameState.isNight, gameState.currentLightMultiplier < Config.LIGHT_MULT_SUNNY - 0.1, gameState.isRaining);
+             updateEnvironmentVisuals(1000); // Force instant update
+             if(gameState.isRaining) startRain(); else stopRain(); // Set initial rain state
+
+
+            gameState.initialStateReceived = true;
+            startGameLoop(); // Start the rendering loop NOW
+            showMessage(`Game state received. Phase: ${gameState.gamePhase}`, 'info');
+        }
+
+        // --- Update Environment Targets (for smooth transitions) ---
+        // We might need to track previous rain state to only call start/stop on change
+        const wasRaining = scene?.getObjectByName("rain")?.visible ?? false; // Check current rain visibility
+        setWeatherTargets(gameState.isNight, gameState.currentLightMultiplier < Config.LIGHT_MULT_SUNNY - 0.1, gameState.isRaining);
+        if (gameState.isRaining && !wasRaining) {
+             startRain();
+        } else if (!gameState.isRaining && wasRaining) {
+             stopRain();
+        }
+
+
+        // --- Update/Create Player Trees ---
+        const receivedPlayerIds = new Set(Object.keys(serverState.players));
+        // Update existing / create new
+        for (const playerId in serverState.players) {
+            createOrUpdateTree(playerId, serverState.players[playerId]);
+        }
+        // Remove trees for players that are no longer in the server state
+        gameState.playerTrees.forEach((treeGroup, playerId) => {
+            if (!receivedPlayerIds.has(playerId)) {
+                removeTree(playerId);
+            }
+        });
+
+        // --- Update Camera Target (Example: Target own tree if exists) ---
+        const myState = getMyPlayerState();
+        if (myState && myState.isAlive && controls && gameState.playerTrees.has(gameState.myId)) {
+             const myTreeGroup = gameState.playerTrees.get(gameState.myId);
+             // Simple target: center of tree base + half height
+             controls.target.lerp(new THREE.Vector3(myTreeGroup.position.x, myState.trunkHeight / 2 + myTreeGroup.position.y, myTreeGroup.position.z), 0.1);
+        }
+
+    }); // End of gameStateUpdate handler
+
+     // --- Player Disconnected Handler ---
+     socket.on('playerDisconnected', (playerId) => {
+         console.log(`Player ${playerId} disconnected.`);
+         removeTree(playerId); // Remove visual representation
+         // No need to delete from gameState.players, next gameStateUpdate won't include them
+     });
+
+     // --- Game Over Handler ---
+     socket.on('gameOver', (data) => {
+         console.log("Game Over event received:", data);
+         gameState.gameOver = true;
+         gameState.gameOverReason = data.reason || "The game has ended!";
+         gameState.winnerId = data.winnerId; // Store winner ID
+         stopGameLoop(); // Stop rendering loop? Or let it run for game over screen? TBD
+         showGameOverUI(); // Update UI to show modal
+         // Make all trees non-interactive / visually distinct?
+         // Set canopy visibility is handled by createOrUpdateTree based on isAlive
+     });
+
+} // End of setupSocketListeners
+
+
+// --- Main Game Loop (Now primarily for Rendering & Client-Side Effects) ---
+function gameLoop() {
+    animationFrameId = requestAnimationFrame(gameLoop);
+    const deltaTime = clock.getDelta();
+
+    // 1. Simulation is handled by SERVER
+
+    // 2. Update Environment Visuals (Lerping towards targets set by gameStateUpdate)
+    updateEnvironmentVisuals(deltaTime);
+
+    // 3. Update Rain Animation
+    updateRain(deltaTime);
+
+    // 4. Update UI (Reads from local gameState cache, updated by server)
+    if (!gameState.gameOver) { // Check local game over flag
+        updateUI();
+    }
+
+    // 5. Update Camera Controls
+    if (controls) {
+        controls.update();
+    }
+
+    // 6. Render Scene
+    if (renderer && scene && camera) {
+        renderer.render(scene, camera);
+    } else {
+        console.error("Render components missing in game loop!");
+        stopGameLoop();
+    }
+}
+
+// Helper to start/restart the game loop
+function startGameLoop() {
+    if (animationFrameId !== null) { // Already running
+         console.log("MAIN: Game loop already running.");
+        return;
+    }
+    console.log("MAIN: Starting client render loop.");
+    clock = new THREE.Clock(); // Reset clock
+    gameLoop();
+}
+
+// Helper to stop the game loop
+function stopGameLoop() {
+     if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+        console.log("MAIN: Stopped client render loop.");
+    }
+}
+
+// --- Exported Restart Handler (Needs full rethink for multiplayer) ---
+export function handleRestart() {
+    console.warn("MAIN: handleRestart() called - Needs full rework for multiplayer!");
+    // Simplest 'restart' is reload, takes player back to landing page
+    window.location.href = '/'; // Navigate to root
+}
+
+
+// --- Start Application ---
+document.addEventListener('DOMContentLoaded', initializeApp);
+
+// --- Export socket for UI handlers ---
+export { socket };
+
+--- FILE: server/config.js ---
+// server/config.js
+// Game Constants & Configuration
+// (Content copied from root config.js)
+
+export const k_TA_LA_RATIO = 0.01; // Trunk cross-section area / Leaf Area ratio
+export const INITIAL_LEAF_AREA = 5;
+export const INITIAL_TRUNK_HEIGHT = 2;
+export const INITIAL_CARBON = 100;
+export const INITIAL_HYDRAULICS = 100; // Starting hydraulic safety value
+
+export const MAX_CARBON = 200; // Maximum carbon storage capacity
+
+// Hydraulic Buffer Configuration
+export const BASE_HYDRAULIC = 50; // Base hydraulic safety buffer independent of size
+export const HYDRAULIC_SCALE_PER_LA = 10; // Additional buffer capacity per unit of currentLA
+
+export const PHOTOSYNTHESIS_RATE_PER_LA = 0.5; // Carbon gain per LA per second at max light & stomata=1
+export const RESPIRATION_RATE_PER_LA = 0.02;   // Carbon loss per LA per second
+export const RESPIRATION_RATE_PER_TRUNK_VOL = 0.01; // Carbon loss per trunk volume per second
+export const TRANSPIRATION_RATE_PER_LA = 0.4; // Water loss rate per LA per sec at stomata=1, normal drought
+export const HYDRAULIC_RECOVERY_RATE = 2;   // Base safety gain per second if stomata closed & water available
+export const HYDRAULIC_DAMAGE_THRESHOLD = 20; // Below this, start taking damage
+export const CROWN_DIEBACK_RATE = 0.05;      // Proportion of canopy LA potentially lost per second below threshold
+
+export const GROWTH_COST_PER_LA = 5;        // Carbon cost to add 1 unit of LA (includes implicit trunk cost)
+export const SEED_COST = 1;                 // Carbon cost per seed
+
+// Time Structure Constants
+export const PERIOD_DURATION = 7.0;         // Duration of each daytime weather period (seconds)
+export const NUM_DAY_PERIODS = 3;           // Number of weather periods per day
+export const DAY_TOTAL_DURATION = PERIOD_DURATION * NUM_DAY_PERIODS; // Total duration of all day periods
+export const NIGHT_DURATION = 3.0;          // Duration of nighttime (seconds)
+export const TOTAL_CYCLE_DURATION = DAY_TOTAL_DURATION + NIGHT_DURATION; // Full day-night cycle length
+export const GROWTH_OFFSET_NIGHT = 1.5;     // Time into night when growth allocation occurs (seconds)
+
+// Weather Probabilities & Effects
+export const SUNNY_PROB = 2.0 / 3.0;        // Probability of a period being sunny (vs cloudy)
+export const RAIN_PROB_IF_CLOUDY = 0.5;     // Probability of rain if a period is cloudy
+
+export const LIGHT_MULT_SUNNY = 1.0;        // Photosynthesis multiplier for sunny weather
+export const LIGHT_MULT_CLOUDY = 0.4;       // Photosynthesis multiplier for cloudy weather
+
+export const DROUGHT_MULT_BASE = 1.0;       // Base drought factor (normal conditions)
+export const DROUGHT_VARIATION = 0.4;       // Max +/- variation around the base for random drought factor
+
+export const RAIN_RECOVERY_BONUS_MULT = 3.0; // Multiplier for HYDRAULIC_RECOVERY_RATE during rain
+export const NIGHT_RAIN_HYDRAULIC_BOOST = 20.0; // Absolute hydraulic units added during rainy night (foliar uptake)
+
+// Canopy Tile Configuration (Client might still need this, but server sim doesn't directly)
+// export const CANOPY_TILE_GRID_SIZE = 10;
+// export const CANOPY_TILE_THICKNESS = 0.1;
+
+// Island Configuration (Client primarily needs this, server might for spawn validation)
+// export const ISLAND_RADIUS = 50;
+// export const WATER_LEVEL = 0;
+// export const ISLAND_LEVEL = 0.1;
+
+// Default Colors (Client only)
+// export const DEFAULT_LEAF_COLOR = '#228B22';
+// export const DEFAULT_TRUNK_COLOR = '#8B4513';
+
+// Fog constants (Client only)
+// export const FOG_DAY_NEAR = 50;
+// export const FOG_DAY_FAR = 150;
+// export const FOG_NIGHT_NEAR = 9999;
+// export const FOG_NIGHT_FAR = 10000;
+
+--- FILE: index.html ---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Island Canopy Sim - Welcome</title>
+    <link rel="stylesheet" href="style.css"> <!-- Shared style or create landing.css -->
+    <style>
+        /* Basic Landing Page Specific Styles */
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #2b412b; /* Foresty green background */
+            color: #f0f0f0;
+            font-family: sans-serif;
+            text-align: center;
+        }
+        .landing-container {
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #90ee90; /* Light green */
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        button {
+            padding: 12px 25px;
+            font-size: 1.1em;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #556b2f; /* Dark olive green */
+            color: #f0f0f0;
+            transition: background-color 0.3s ease;
+        }
+        button:hover:not(:disabled) {
+            background-color: #6b8e23; /* Olive drab */
+        }
+        button:disabled {
+            background-color: #4a4a4a;
+            color: #888;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="landing-container">
+        <h1>Forest Royale</h1>
+        <p>Make Good Decisions!</p>
+
+        <div class="button-group">
+            <button id="start-single-player">Single Player</button>
+            <button id="start-multi-player" disabled>Multiplayer (Coming Soon)</button>
+            <button id="open-settings">Settings</button>
+        </div>
+    </div>
+
+    <script src="index.js"></script>
+</body>
+</html>
+
+--- FILE: README.md ---
+# FOREST ROYALE: A Plant Ecophysiology Game
+
+## 1. Overview
+
+**Island Canopy Sim** is an interactive web-based simulation game designed to teach fundamental concepts of plant ecophysiology, specifically focusing on tree "decision-making" under environmental constraints. Developed as part of PhD research in plant ecophysiology, this project uses trees as a model system for studying resource allocation and survival strategies in sessile organisms facing dynamic environmental conditions.
+
+The primary goal is to create an engaging, accessible (playable on web/mobile), and scientifically grounded experience. The game aims to translate complex physiological processes and trade-offs into intuitive game mechanics.
+
+We approach trees not just as passive responders, but as agents making strategic "decisions" (e.g., stomatal aperture, carbon allocation) to maximize lifetime fitness (represented by reproductive output) within the bounds of physical and chemical laws governing water transport and photosynthesis, under a changing environment.
+
+## 2. Core Concept
+
+Players control an individual tree on a simulated island. The objective is to survive environmental challenges (dynamic light, drought, rain) and maximize lifetime seed production. This requires balancing competing demands:
+
+*   **Growth:** Investing carbon into increasing height and leaf area can improve light capture but increases water demand and respiration costs.
+*   **Reproduction:** Allocating carbon to seeds directly contributes to the player's score but detracts from growth and reserves.
+*   **Survival (Savings & Safety):** Maintaining sufficient carbon reserves and hydraulic safety is essential to survive periods of stress (e.g., drought, low light, cloudy periods) and nightly respiration costs.
+
+Players make real-time decisions (stomatal aperture) and periodic strategic decisions (carbon allocation) to navigate these trade-offs in response to fluctuating weather conditions.
+
+## 3. Scientific Principles Demonstrated
+
+This simulation aims to illustrate key concepts in plant ecophysiology:
+
+*   **Resource Allocation Trade-offs:** The fundamental conflict between allocating limited resources (carbon) towards growth, reproduction, storage (savings), and defense (implicit via survival).
+*   **Photosynthesis-Transpiration Compromise:** The need to open stomata for CO2 uptake (photosynthesis) inevitably leads to water loss (transpiration), requiring players to manage stomatal aperture based on water availability (hydraulic safety) and carbon demand, influenced by current weather.
+*   **Hydraulic Limits & Dynamics:** Demonstrating that exceeding the water transport capacity (represented by low `hydraulicSafety`) leads to physiological damage (canopy dieback) and potentially death. Hydraulic safety is now dynamic, influenced by transpiration (affected by drought factor) and recovery (boosted by rain, potential night uptake). The maximum hydraulic buffer scales with tree size.
+*   **Carbon Balance:** The dynamic interplay between carbon gain (photosynthesis, affected by light levels) and carbon loss (respiration, growth, reproduction), requiring players to manage reserves (capped at `MAX_CARBON`) to avoid starvation.
+*   **Environmental Response:** How changing conditions (light intensity, drought factor, rain) during short weather periods affect physiological processes and strategic decisions.
+*   **Within-Generation Plasticity:** How a tree's "strategy" can change over its lifetime based on its state and environment.
+*   **(Future) Competition:** How interactions with neighbors (e.g., shading) influence resource capture and survival.
+
+## 4. Current Features (As of this README update)
+
+*   **Single-Player Mode:** One player controls one tree.
+*   **3D Environment:** Simple island map using Three.js. OrbitControls for camera interaction.
+*   **Dynamic Environment:**
+    *   **Day/Night Cycle:** Structured cycle with 3 daytime periods (7s each) followed by a night period (3s). Total cycle: 24s.
+    *   **Weather System:** Weather (Sunny/Cloudy, Drought Factor, Rain Chance) is dynamically generated for each 7s daytime period and for the night phase.
+    *   **Visual Effects:**
+        *   Sky color, fog color/density, and lighting (ambient & sun intensity) transition smoothly between sunny, cloudy, and night states.
+        *   Stars appear on clear nights (not raining).
+        *   Rain particle system activates visually during rainy periods (day or night).
+    *   **Physiological Effects:**
+        *   Light level (sunny/cloudy) directly affects photosynthesis rate.
+        *   Drought factor (randomly varies per period) affects transpiration rate.
+        *   Rain boosts hydraulic recovery rate during the day.
+        *   Rain during the night provides a one-time hydraulic boost (foliar uptake).
+*   **Core Tree Model:**
+    *   Rectangular prism trunk.
+    *   Tiled Canopy: Canopy represented by a grid of tiles (e.g., 10x10).
+    *   Growth: Increases trunk size and scales the overall canopy group size.
+    *   Trunk-to-leaf area ratio maintained conceptually for resource calculations.
+*   **Player Customization:** Leaf and trunk color selectable via settings page.
+*   **Resource Meters:**
+    *   **Carbon Storage:** Increases with photosynthesis (light-dependent), decreases with respiration and allocation. Capped at `MAX_CARBON`. Death if <= 0.
+    *   **Hydraulic Safety:** Decreases with transpiration (drought-dependent), recovers slowly when stomata are closed (boosted by rain). Max capacity scales with tree leaf area. Death if <= 0.
+*   **Real-Time Control:** Stomatal aperture controlled via a UI slider (0-100%).
+*   **Allocation Phase (Nightly):**
+    *   Occurs automatically 1.5 seconds into the 3-second night phase based on current slider positions.
+    *   **Two-Slider UI:** Controls allocation via "Savings %" and "Growth/Seed Ratio %". Player adjusts these *during the day* in anticipation of the night allocation.
+    *   **Persistence:** Slider positions are remembered.
+    *   **Savings Allowed:** Explicit carbon saving via "Savings %" slider.
+    *   **Seed Cost:** 1 Carbon per seed.
+*   **Physiological Consequences:**
+    *   **Canopy Damage:** If `hydraulicSafety` drops below `HYDRAULIC_DAMAGE_THRESHOLD`, `damagedLAPercentage` increases. This reduces effective leaf area (affecting photo/transpiration) and visually removes tiles from the canopy grid (starting randomly) while tinting remaining tiles brown. Damage is persistent.
+    *   **Death:** Occurs if `hydraulicSafety <= 0` (Desiccation) or `carbonStorage <= 0` (Starvation). A game over modal appears.
+*   **UI:** Displays Day, Current Day Period/Night status, Time left in period/night, Weather status (Sunny/Cloudy, Raining, Dry/Wet indicator), resource bars, seed count.
+*   **Modular Code Structure:** Code organized into JavaScript modules (`config.js`, `gameState.js`, `sceneSetup.js`, `tree.js`, `simulation.js`, `environment.js`, `main.js`, `ui/` submodules).
+
+## 5. Technology Stack
+
+*   **Frontend:** HTML5, CSS3, JavaScript (ES6 Modules)
+*   **3D Rendering:** [Three.js](https://threejs.org/) library
+*   **Camera Controls:** `OrbitControls` (from Three.js examples)
+*   **Local Development Server:** Any simple static server (e.g., `npx serve`, Python's `http.server`, VS Code Live Server)
+
+## 6. Project Structure
+
+The project code is organized into the following JavaScript modules:
+
+*   `main.js`: Main application entry point. Initializes modules, sets up the core game loop (`requestAnimationFrame`), calls simulation and visual updates. Handles overall application flow like restart.
+*   `config.js`: Stores all game constants (rates, costs, durations, initial values, thresholds, colors, weather probabilities, etc.).
+*   `gameState.js`: Defines and manages the central `gameState` object, including initialization logic and current dynamic variables (resources, time, weather state).
+*   `sceneSetup.js`: Initializes and manages the Three.js `scene`, `camera`, `renderer`, `lights`, and `OrbitControls`. Creates the static environment (island, water). Calls initial setup for dynamic environment effects.
+*   `tree.js`: Handles all aspects of the player's tree object: geometry creation (trunk, tiled canopy), dimension calculations, growth logic (updating trunk/scaling canopy), damage visualization (tile removal/tinting), material management, visibility, and resource disposal.
+*   `simulation.js`: Contains the core simulation logic run each frame (`updateSimulation`). Manages time progression (periods, night), generates weather dynamically, calculates physiological changes (photosynthesis, respiration, transpiration, hydraulics, damage), handles allocation trigger, and checks for game over conditions. Calls functions to set visual targets.
+*   `environment.js`: Manages dynamic visual aspects of the environment. Creates and updates stars, rain particles. Handles smooth transitions (lerping) for lighting, sky color, and fog based on targets set by the simulation.
+*   `ui/` folder: Contains submodules for managing DOM interactions:
+    *   `elements.js`: Caches DOM element references.
+    *   `update.js`: Updates UI display based on `gameState`.
+    *   `setupListeners.js`: Attaches event listeners to controls.
+    *   `controlsHandlers.js`: Handles input events from sliders.
+    *   `messageHandler.js`: Displays status/warning messages.
+    *   `gameOver.js`: Manages the game over modal.
+    *   `leaderboard.js`: (Currently empty - for future use).
+*   `index.html` / `index.js`: Landing page.
+*   `game.html`: Main game page structure.
+*   `settings.html` / `settings.js`: Settings page for player name/colors.
+*   `style.css`: Shared CSS styles.
+
+## 7. Getting Started / Running the Project
+
+1.  **Clone or Download:** Get the project files.
+2.  **Install a Simple Web Server (if needed):** Node.js `npx serve` or Python `http.server`.
+3.  **Run the Server:** From the project's root directory (`npx serve` or `python -m http.server`).
+4.  **Open in Browser:** Navigate to the local address provided by the server (e.g., `http://localhost:3000` or `http://localhost:8000`).
+
+## 8. Gameplay Mechanics (Detailed)
+
+*   **Objective:** Survive as long as possible and produce the maximum number of seeds (`gameState.seedCount`).
+*   **Camera:** Use the mouse (left-click drag to orbit, right-click drag to pan, scroll wheel to zoom).
+*   **Stomata Control:** Use the "Stomatal Openness" slider. Higher values increase photosynthesis potential (good in sun) but also increase water loss (risky in drought). Lower values conserve water but reduce carbon gain. Adapt based on current weather shown in UI!
+*   **Allocation Control:** Use the "Savings %" and "Invest % Grow/Seeds" sliders *during the day* to set your strategy for the *next* automatic night allocation.
+*   **Status Meters:** Monitor your `Carbon Storage` and `Hydraulic Safety` bars. Keep them above critical levels. Note that max hydraulic safety increases as your tree grows larger.
+*   **Weather & Time:** The game cycles through 3 daytime periods (7s each) and a night phase (3s). The UI shows the current period/phase and time remaining. Weather changes each period:
+    *   **Sunny/Cloudy:** Affects light intensity and thus carbon gain.
+    *   **Drought Factor:** Randomly varies, affecting water loss rate.
+    *   **Raining:** Occurs sometimes when cloudy. Boosts hydraulic recovery rate, prevents stars from showing at night.
+*   **Night Phase:**
+    *   Visuals change (dark, stars if clear).
+    *   **Foliar Uptake:** If raining, gain a +20 hydraulic safety boost once.
+    *   **Allocation Trigger:** 1.5s into the night, carbon is automatically allocated based on your slider settings (Growth/Seeds/Savings). Growth occurs instantly if carbon is allocated.
+*   **Canopy Damage:** If hydraulic safety drops too low, canopy tiles start disappearing visually, and remaining tiles turn brown. This damage reduces photosynthesis/transpiration effectiveness and is permanent.
+*   **Game Over:** If Carbon hits 0 (Starvation) or Hydraulic Safety hits 0 (Desiccation), the game ends. A modal shows your final score. Click "Play Again" to restart.
+
+## 9. Simulation Model Details (Internal Logic)
+
+*   **Time:** 24s cycle (3x7s day periods, 3s night). `timeInCycle` tracks progress. Allocation occurs 1.5s into night.
+*   **Weather:** Generated dynamically per period/night phase. `gameState` stores `currentLightMultiplier`, `currentDroughtFactor`, `isRaining`.
+*   **Carbon Balance:**
+    *   `Gain (Photosynthesis) = PHOTOSYNTHESIS_RATE_PER_LA * effectiveLA * stomatalConductance * currentLightMultiplier * deltaTime` (Gain capped by `MAX_CARBON` - `currentStorage`).
+    *   `Loss (Respiration) = (RESPIRATION_RATE_PER_LA * currentLA + RESPIRATION_RATE_PER_TRUNK_VOL * trunkVolume) * deltaTime`.
+    *   `Loss (Allocation) = actualCarbonForGrowth + actualCarbonForSeeds`.
+*   **Hydraulics:**
+    *   `Max Hydraulics = BASE_HYDRAULIC + HYDRAULIC_SCALE_PER_LA * currentLA`.
+    *   `Recovery Rate = HYDRAULIC_RECOVERY_RATE * (isRaining ? RAIN_RECOVERY_BONUS_MULT : 1)`.
+    *   `Water Loss Rate = TRANSPIRATION_RATE_PER_LA * effectiveLA * stomatalConductance * currentDroughtFactor`.
+    *   `Hydraulic Change = (Recovery Rate * (1 - stomatalConductance) - Water Loss Rate) * deltaTime`.
+    *   `Foliar Uptake (Night Rain): +NIGHT_RAIN_HYDRAULIC_BOOST` (once per rainy night, capped by max).
+    *   `hydraulicSafety` clamped between 0 and `maxHydraulic`.
+*   **Growth:**
+    *   Calculates `growthFactor` based on allocated carbon and current biomass estimate.
+    *   Increases `currentLA` and `trunkHeight`. Recalculates `maxHydraulic`.
+    *   Updates trunk geometry. Scales the `canopyGroup` size.
+*   **Damage:**
+    *   If `hydraulicSafety < HYDRAULIC_DAMAGE_THRESHOLD`: `damagedLAPercentage += CROWN_DIEBACK_RATE * deltaTime` (capped at 1).
+    *   `effectiveLA = currentLA * (1 - damagedLAPercentage)`.
+    *   Visuals: `updateCanopyTiles` hides `floor(totalTiles * damagedLAPercentage)` tiles and tints the shared canopy material brown.
+*   **Visual Transitions:** `environment.js` uses `lerp` in `updateEnvironmentVisuals` (called each frame) to smoothly change light intensity, sky/fog color, and fog distance towards targets set by `setWeatherTargets` (called on period/phase change). Star visibility changes instantly based on night/rain status.
+
+## 10. Development Roadmap & Future Directions
+
+This project is actively under development. Key areas for future work include:
+
+1.  **Environment Polish:**
+    *   Refine rain particle appearance (e.g., texture, velocity variation).
+    *   Add visual cloud representation (e.g., moving textured planes).
+    *   Add subtle wind effects? (Swaying tree - complex).
+    *   Sound effects (rain, wind?).
+2.  **Gameplay & Balancing:**
+    *   Fine-tune weather probabilities, effect multipliers, costs, rates based on playtesting. Is the game too easy/hard? Is rain too powerful/rare?
+    *   Consider adding defense allocation/costs.
+    *   Refine UI feedback (e.g., clearer indication of low resources, drought level).
+3.  **Climate Catastrophes:**
+    *   Implement system for rare, high-impact events (wildfire, flood) triggered with increasing probability over time.
+    *   Define specific conditions and effects for each catastrophe (potentially player-subset specific for multiplayer).
+4.  **Multiplayer Implementation:**
+    *   **Backend:** Set up a Node.js server with WebSockets (e.g., Socket.IO).
+    *   **Spawning:** Implement player joining and initial placement.
+    *   **State Synchronization:** Sync tree/player states and crucial environmental state.
+    *   **Interaction:** Implement shading calculations between players.
+    *   **Scalability:** Optimize for target player count.
+5.  **Enhancing Scientific Accuracy (Longer Term):**
+    *   More complex hydraulic model (water potential, PLC).
+    *   Refined photosynthesis (light response, temperature).
+    *   Nutrient limitations.
+    *   More detailed biomass/respiration.
+6.  **Educational Context:**
+    *   Add tooltips or info panels explaining scientific concepts.
+    *   Link game events to real-world scenarios.
+
+## 11. Contributing
+
+[Optional: Add guidelines if you plan for others to contribute]
+
+## 12. License
+
+[Optional: Add a license]
+
+## 13. Contact
+
+Developed by [Your Name/Alias], PhD Student in Plant Ecophysiology.
+[Optional: Add contact email or link]
+
+--- FILE: environment.js ---
+// environment.js
+// Manages visual aspects of the game environment (lighting, sky, effects)
+
+import * as THREE from 'three';
+import { scene, sunLight, ambientLight, camera } from './sceneSetup.js';
+import { gameState } from './gameState.js'; // Import gameState to read server state
+
+// --- Configuration (Keep as before) ---
+const skyColors = { day_sunny: new THREE.Color(0x87CEEB), day_cloudy: new THREE.Color(0xB0C4DE), night: new THREE.Color(0x000020) };
+const fogColors = { day_sunny: new THREE.Color(0x87CEEB), day_cloudy: new THREE.Color(0xA9A9A9), night: new THREE.Color(0x000010) };
+const FOG_DAY_NEAR = 50; const FOG_DAY_FAR = 150;
+const FOG_NIGHT_NEAR = 9999; const FOG_NIGHT_FAR = 10000;
+const ambientIntensity = { day_sunny: 0.6, day_cloudy: 0.4, night: 0.1 };
+const sunIntensity = { day_sunny: 1.5, day_cloudy: 0.5, night: 0.0 };
+const starCount = 7000;
+const SMOOTHING_SPEED = 1.5;
+const RAIN_COUNT = 7000; const RAIN_AREA_SIZE = 60; const RAIN_HEIGHT = 50; const RAIN_SPEED = 80; const RAIN_COLOR = 0xAAAAFF;
+
+// --- Module State for Lerping (Keep as before) ---
+let stars = null;
+let currentAmbientIntensity = ambientIntensity.day_sunny; // Initial default
+let currentSunIntensity = sunIntensity.day_sunny;
+let currentSkyColor = skyColors.day_sunny.clone();
+let currentFogColor = fogColors.day_sunny.clone();
+let currentFogNear = FOG_DAY_NEAR;
+let currentFogFar = FOG_DAY_FAR;
+
+let targetAmbientIntensity = currentAmbientIntensity;
+let targetSunIntensity = currentSunIntensity;
+let targetSkyColor = currentSkyColor.clone();
+let targetFogColor = currentFogColor.clone();
+let targetFogNear = currentFogNear;
+let targetFogFar = currentFogFar;
+let targetStarsVisible = false;
+
+// Rain State
+let rainParticles = null;
+let rainGeometry = null;
+let rainMaterial = null;
+let rainPositions = null;
+let rainVelocities = null;
+
+// --- Initialization Functions (Keep createStars, createRainSystem as before) ---
+export function createStars() {
+    if (stars) { /* cleanup */ if(stars.geometry) stars.geometry.dispose(); if(stars.material) stars.material.dispose(); if(scene) scene.remove(stars); stars = null; }
+    const starGeometry = new THREE.BufferGeometry(); const starVertices = [];
+    const starMaterial = new THREE.PointsMaterial({ color: 0xFFFFFF, size: 0.4, sizeAttenuation: true, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
+    const radius = 500;
+    for (let i = 0; i < starCount; i++) { const phi = Math.acos(-1 + (2 * Math.random())); const theta = Math.random() * Math.PI * 2; const x = radius * Math.sin(phi) * Math.cos(theta); const y = radius * Math.cos(phi); const z = radius * Math.sin(phi) * Math.sin(theta); if (y > -radius * 0.05) starVertices.push(x, y, z); }
+    starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3)); stars = new THREE.Points(starGeometry, starMaterial); stars.name = "stars"; stars.visible = false; stars.renderOrder = 1; if (scene) scene.add(stars);
+    console.log("Stars created (Additive White) and added to scene.");
+}
+export function createRainSystem() {
+    if (rainParticles) return; rainGeometry = new THREE.BufferGeometry();
+    rainMaterial = new THREE.PointsMaterial({ color: RAIN_COLOR, size: 0.08, sizeAttenuation: true, transparent: true, opacity: 0.6, blending: THREE.NormalBlending, depthWrite: false });
+    rainPositions = new Float32Array(RAIN_COUNT * 3); rainVelocities = new Array(RAIN_COUNT); const halfArea = RAIN_AREA_SIZE / 2;
+    for (let i = 0; i < RAIN_COUNT; i++) { const i3 = i * 3; rainPositions[i3 + 0] = Math.random() * RAIN_AREA_SIZE - halfArea; rainPositions[i3 + 1] = Math.random() * RAIN_HEIGHT; rainPositions[i3 + 2] = Math.random() * RAIN_AREA_SIZE - halfArea; rainVelocities[i] = -RAIN_SPEED * (0.8 + Math.random() * 0.4); }
+    rainGeometry.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3)); rainParticles = new THREE.Points(rainGeometry, rainMaterial); rainParticles.name = "rain"; rainParticles.visible = false; if (scene) { scene.add(rainParticles); console.log("Rain particle system created."); } else { console.error("Scene not available for adding rain system."); }
+}
+
+
+// --- Update Functions ---
+
+/**
+ * Sets the TARGET visual state based on conditions read from gameState.
+ * Now takes arguments derived from gameState in main.js.
+ * @param {boolean} isNight
+ * @param {boolean} isCloudy - True if light multiplier indicates cloudy
+ * @param {boolean} isRaining
+ */
+export function setWeatherTargets(isNight, isCloudy, isRaining) {
+    if (isNight) {
+        targetAmbientIntensity = ambientIntensity.night; targetSunIntensity = sunIntensity.night;
+        targetSkyColor = skyColors.night; targetFogColor = fogColors.night;
+        targetFogNear = FOG_NIGHT_NEAR; targetFogFar = FOG_NIGHT_FAR;
+        targetStarsVisible = !isRaining; // Stars visible only if night and not raining
+    } else { // Daytime
+        targetAmbientIntensity = isCloudy ? ambientIntensity.day_cloudy : ambientIntensity.day_sunny;
+        targetSunIntensity = isCloudy ? sunIntensity.day_cloudy : sunIntensity.day_sunny;
+        targetSkyColor = isCloudy ? skyColors.day_cloudy : skyColors.day_sunny;
+        targetFogColor = isCloudy ? fogColors.day_cloudy : fogColors.day_sunny;
+        targetFogNear = FOG_DAY_NEAR; targetFogFar = FOG_DAY_FAR;
+        targetStarsVisible = false; // No stars during day
+    }
+    // console.log(`ENV: Targets set - Night:${isNight}, Cloudy:${isCloudy}, Raining:${isRaining}, StarsTarget:${targetStarsVisible}`);
+}
+
+// Updates the actual visual environment state via lerping towards targets
+// Reads targets directly, no need to read gameState here.
+export function updateEnvironmentVisuals(deltaTime) {
+    if (!scene || !scene.fog || !ambientLight || !sunLight) return; // Ensure scene objects exist
+
+    const lerpFactor = Math.min(1.0, deltaTime * SMOOTHING_SPEED);
+
+    // Lerp intensities
+    currentAmbientIntensity = THREE.MathUtils.lerp(currentAmbientIntensity, targetAmbientIntensity, lerpFactor);
+    currentSunIntensity = THREE.MathUtils.lerp(currentSunIntensity, targetSunIntensity, lerpFactor);
+
+    // Lerp colors
+    currentSkyColor.lerp(targetSkyColor, lerpFactor);
+    currentFogColor.lerp(targetFogColor, lerpFactor);
+
+    // Lerp fog distances
+    currentFogNear = THREE.MathUtils.lerp(currentFogNear, targetFogNear, lerpFactor);
+    currentFogFar = THREE.MathUtils.lerp(currentFogFar, targetFogFar, lerpFactor);
+
+    // Apply current values
+    ambientLight.intensity = currentAmbientIntensity;
+    sunLight.intensity = currentSunIntensity;
+    scene.background = currentSkyColor;
+    scene.fog.color = currentFogColor;
+    scene.fog.near = currentFogNear;
+    scene.fog.far = currentFogFar;
+
+    // Update star visibility (instant change is fine)
+    if (stars && stars.visible !== targetStarsVisible) {
+        stars.visible = targetStarsVisible;
+        // console.log(`ENV: Stars visibility set to ${targetStarsVisible}`);
+    }
+}
+
+// Makes rain visible
+export function startRain() {
+    if (rainParticles && !rainParticles.visible) { // Only change if not already visible
+        rainParticles.visible = true;
+        console.log("ENV: Starting rain effect.");
+    }
+}
+
+// Makes rain invisible
+export function stopRain() {
+     if (rainParticles && rainParticles.visible) { // Only change if visible
+        rainParticles.visible = false;
+        console.log("ENV: Stopping rain effect.");
+    }
+}
+
+// Animates the raindrops (Keep as before)
+export function updateRain(deltaTime) {
+    if (!rainParticles || !rainParticles.visible || !rainPositions || !rainVelocities) return;
+    const positions = rainParticles.geometry.attributes.position.array; const halfArea = RAIN_AREA_SIZE / 2;
+    for (let i = 0; i < RAIN_COUNT; i++) { const i3 = i * 3; positions[i3 + 1] += rainVelocities[i] * deltaTime; if (positions[i3 + 1] < 0) { positions[i3 + 0] = Math.random() * RAIN_AREA_SIZE - halfArea; positions[i3 + 1] = RAIN_HEIGHT + Math.random() * 5; positions[i3 + 2] = Math.random() * RAIN_AREA_SIZE - halfArea; } }
+    rainParticles.geometry.attributes.position.needsUpdate = true;
+}
+
 --- FILE: sceneSetup.js ---
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as Config from './config.js';
+// Import environment initializers
+import { createStars, createRainSystem } from './environment.js';
 
+// Exports for use by other modules
 export let scene;
-export let camera;
+export let camera; // Export camera for potential use (e.g., rain relative positioning)
 export let renderer;
 export let controls;
 export let sunLight;
+export let ambientLight;
 
 export function initScene(canvas) {
+    // Scene setup
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87ceeb);
-    scene.fog = new THREE.Fog(0x87ceeb, 50, 150);
+    scene.background = new THREE.Color(0x87ceeb); // Initial color, environment.js will update
+    scene.fog = new THREE.Fog(0x87ceeb, Config.FOG_DAY_NEAR, Config.FOG_DAY_FAR); // Use constants, environment.js will update
 
+    // Camera setup
     const aspectRatio = window.innerWidth / window.innerHeight;
-    camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 1000);
+    camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 1000); // Far plane at 1000
     camera.position.set(15, 15, 15);
 
+    // Renderer setup
     renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    // Lighting setup
+    ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // Initial intensity
     scene.add(ambientLight);
 
-    sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    sunLight = new THREE.DirectionalLight(0xffffff, 1.5); // Initial intensity
     sunLight.position.set(30, 50, 20);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.width = 2048;
@@ -71,32 +818,37 @@ export function initScene(canvas) {
     sunLight.shadow.camera.top = shadowCamSize;
     sunLight.shadow.camera.bottom = -shadowCamSize;
     scene.add(sunLight);
-    scene.add(sunLight.target); // Ensure target is added for potential updates
+    scene.add(sunLight.target);
 
-    // Controls
+    // Controls setup
     controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.target.set(0, Config.INITIAL_TRUNK_HEIGHT / 2, 0); // Initial target
+    controls.target.set(0, Config.INITIAL_TRUNK_HEIGHT / 2, 0); // Initial target based on config
     controls.maxPolarAngle = Math.PI / 2 - 0.1;
     controls.minDistance = 5;
     controls.maxDistance = 100;
 
-    // Environment Meshes
+    // Static Environment Meshes (Island, Water)
     createEnvironment();
 
-    // Resize Listener
+    // Initialize Dynamic Environment Effects (Stars, Rain)
+    createStars();
+    createRainSystem();
+
+    // Window Resize Listener
     window.addEventListener('resize', onWindowResize);
 
-    console.log("Scene initialized");
+    console.log("Scene initialized (including stars and rain system placeholder)");
 }
 
+// Creates static meshes like island and water
 function createEnvironment() {
     // Island
     const islandGeometry = new THREE.CylinderGeometry(Config.ISLAND_RADIUS, Config.ISLAND_RADIUS, Config.ISLAND_LEVEL * 2, 32);
-    const islandMaterial = new THREE.MeshStandardMaterial({ color: 0x967969 }); // Brownish
+    const islandMaterial = new THREE.MeshStandardMaterial({ color: 0x967969 });
     const islandMesh = new THREE.Mesh(islandGeometry, islandMaterial);
-    islandMesh.position.y = Config.ISLAND_LEVEL / 2; // Center it vertically
+    islandMesh.position.y = Config.ISLAND_LEVEL / 2; // Center it vertically slightly above water
     islandMesh.receiveShadow = true;
     scene.add(islandMesh);
 
@@ -111,12 +863,12 @@ function createEnvironment() {
     });
     const waterMesh = new THREE.Mesh(waterGeometry, waterMaterial);
     waterMesh.rotation.x = -Math.PI / 2;
-    waterMesh.position.y = Config.WATER_LEVEL;
-    waterMesh.receiveShadow = true; // Water can receive shadows from trees
+    waterMesh.position.y = Config.WATER_LEVEL; // At Y=0
+    waterMesh.receiveShadow = true; // Water can receive shadows
     scene.add(waterMesh);
 }
 
-
+// Handles window resize events
 function onWindowResize() {
     if (camera && renderer) {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -125,96 +877,133 @@ function onWindowResize() {
     }
 }
 
---- FILE: ui/messageHandler.js ---
-// ui/messageHandler.js
-// Handles displaying and clearing messages in the UI message log.
+--- FILE: settings.html ---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Island Canopy Sim - Settings</title>
+    <link rel="stylesheet" href="style.css"> <!-- Shared style or create settings.css -->
+     <style>
+        /* Basic Settings Page Specific Styles */
+         body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #333;
+            color: #f0f0f0;
+            font-family: sans-serif;
+        }
+        .settings-container {
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 30px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px; /* Limit max width */
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+         h2 {
+            text-align: center;
+            color: #ccc;
+            margin-bottom: 25px;
+        }
+        .setting-item {
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap; /* Allow wrapping on small screens */
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #444;
+        }
+        .setting-item label {
+            flex-basis: 120px; /* Fixed width for labels */
+            flex-shrink: 0;
+            font-weight: bold;
+            color: #bbb;
+        }
+        .setting-item input[type="text"],
+        .setting-item input[type="color"] {
+             padding: 8px;
+             border: 1px solid #555;
+             background-color: #444;
+             color: #eee;
+             border-radius: 4px;
+             flex-grow: 1; /* Allow input to take space */
+        }
+         .setting-item input[type="color"] {
+            min-width: 50px; /* Ensure color picker is usable */
+            height: 40px;
+            padding: 2px;
+            flex-grow: 0; /* Don't let color picker grow too much */
+        }
+        .placeholder { /* Style for future feature area */
+            border: 1px dashed #555;
+            padding: 15px;
+            text-align: center;
+            color: #777;
+            font-style: italic;
+            margin-top: 10px;
+            width: 100%; /* Take full width */
+        }
+         .button-group {
+            margin-top: 30px;
+            text-align: center;
+        }
+         button {
+             padding: 10px 20px;
+             font-size: 1em;
+             cursor: pointer;
+             border: none;
+             border-radius: 5px;
+             background-color: #008080; /* Teal */
+             color: #f0f0f0;
+             transition: background-color 0.3s ease;
+         }
+         button:hover {
+             background-color: #009999; /* Darker Teal */
+         }
+    </style>
+</head>
+<body>
+    <div class="settings-container">
+        <h2>Settings</h2>
 
-// Import the cached UI elements
-import { uiElements } from './elements.js';
+        <div class="setting-item">
+            <label for="player-name">Player Name:</label>
+            <input type="text" id="player-name" maxlength="16" placeholder="Treebard">
+        </div>
 
-/**
- * Shows a message in the message log area.
- * @param {string} text - The message text to display.
- * @param {string} [type='info'] - The type of message ('info', 'warning', 'error') for styling.
- */
-export function showMessage(text, type = 'info') {
-     if (uiElements.messageLogUI) {
-        uiElements.messageLogUI.textContent = text;
-        // Apply class based on type for CSS styling
-        uiElements.messageLogUI.className = `message ${type}`;
-     } else {
-         // Fallback console log if UI element isn't found
-         console.warn(`Message log UI element not found. Message (${type}): ${text}`);
-     }
-}
+        <div class="setting-item">
+            <label for="leaf-color">Leaf Color:</label>
+            <input type="color" id="leaf-color" value="#228B22">
+        </div>
 
-/**
- * Clears the message log area.
- */
-export function clearMessage() {
-    if (uiElements.messageLogUI) {
-        uiElements.messageLogUI.textContent = '';
-        // Reset class to default
-        uiElements.messageLogUI.className = 'message';
-    }
-}
+        <div class="setting-item">
+            <label for="trunk-color">Trunk Color:</label>
+            <input type="color" id="trunk-color" value="#8B4513">
+        </div>
 
---- FILE: gameState.js ---
-import * as Config from './config.js';
+         <div class="setting-item">
+             <label>Canopy Style:</label>
+             <div class="placeholder">
+                 Advanced Customization (Paint / Image Upload) Coming Soon!
+             </div>
+         </div>
 
-export const gameState = {};
 
-export function initializeGameState() {
-    // Load settings from localStorage or use defaults
-    const savedName = localStorage.getItem('playerName') || 'Treebard';
-    const savedLeafColor = localStorage.getItem('leafColor') || Config.DEFAULT_LEAF_COLOR;
-    const savedTrunkColor = localStorage.getItem('trunkColor') || Config.DEFAULT_TRUNK_COLOR;
+        <div class="button-group">
+            <button id="save-settings">Save & Back</button>
+        </div>
 
-    Object.assign(gameState, {
-        // Core gameplay state
-        carbonStorage: Config.INITIAL_CARBON,
-        hydraulicSafety: Config.INITIAL_HYDRAULICS,
-        currentLA: Config.INITIAL_LEAF_AREA,
-        effectiveLA: Config.INITIAL_LEAF_AREA,
-        trunkHeight: Config.INITIAL_TRUNK_HEIGHT,
-        seedCount: 0,
-        stomatalConductance: 0.5,
-        day: 1,
-        // timeOfDay might become purely visual or removed
-        timeOfDay: 'day', // Keep for potential visual sun cycle?
-        timeInCycle: 0,   // Now tracks time *within* the current day/allocation cycle
-        droughtFactor: 1.0,
+    </div>
 
-        // REMOVED isPaused and allocationTimerId
-        // isPaused: false,
-        // allocationTimerId: null,
-
-        gameOver: false,
-        gameOverReason: '',
-
-        // Tree object reference
-        treeMeshGroup: null,
-        damagedLAPercentage: 0,
-
-        // Settings loaded from localStorage
-        playerName: savedName,
-        leafColor: savedLeafColor,
-        trunkColor: savedTrunkColor,
-
-        // Last allocation state (still needed, updated by sliders)
-        lastSavingsPercent: 50,
-        lastGrowthRatioPercent: 50,
-
-        // Derived dimensions (calculated after init)
-        trunkWidth: 0,
-        trunkDepth: 0,
-        canopyWidth: 0,
-        canopyDepth: 0,
-    });
-    console.log(`GameState Initialized. Player: ${gameState.playerName}, Leaf: ${gameState.leafColor}, Trunk: ${gameState.trunkColor}`);
-}
-
-initializeGameState();
+    <script src="settings.js"></script>
+</body>
+</html>
 
 --- FILE: style.css ---
 /* === Global & Base Styles === */
@@ -452,366 +1241,6 @@ input[type="color"] {
 .modal button { padding: 10px 20px; margin-top: 20px; cursor: pointer; background-color: #555; border: none; color: #eee; border-radius: 5px; }
 .modal button:hover { background-color: #777; }
 
---- FILE: settings.html ---
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Island Canopy Sim - Settings</title>
-    <link rel="stylesheet" href="style.css"> <!-- Shared style or create settings.css -->
-     <style>
-        /* Basic Settings Page Specific Styles */
-         body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background-color: #333;
-            color: #f0f0f0;
-            font-family: sans-serif;
-        }
-        .settings-container {
-            background-color: rgba(0, 0, 0, 0.6);
-            padding: 30px;
-            border-radius: 10px;
-            width: 90%;
-            max-width: 500px; /* Limit max width */
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        }
-         h2 {
-            text-align: center;
-            color: #ccc;
-            margin-bottom: 25px;
-        }
-        .setting-item {
-            margin-bottom: 20px;
-            display: flex;
-            flex-wrap: wrap; /* Allow wrapping on small screens */
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid #444;
-        }
-        .setting-item label {
-            flex-basis: 120px; /* Fixed width for labels */
-            flex-shrink: 0;
-            font-weight: bold;
-            color: #bbb;
-        }
-        .setting-item input[type="text"],
-        .setting-item input[type="color"] {
-             padding: 8px;
-             border: 1px solid #555;
-             background-color: #444;
-             color: #eee;
-             border-radius: 4px;
-             flex-grow: 1; /* Allow input to take space */
-        }
-         .setting-item input[type="color"] {
-            min-width: 50px; /* Ensure color picker is usable */
-            height: 40px;
-            padding: 2px;
-            flex-grow: 0; /* Don't let color picker grow too much */
-        }
-        .placeholder { /* Style for future feature area */
-            border: 1px dashed #555;
-            padding: 15px;
-            text-align: center;
-            color: #777;
-            font-style: italic;
-            margin-top: 10px;
-            width: 100%; /* Take full width */
-        }
-         .button-group {
-            margin-top: 30px;
-            text-align: center;
-        }
-         button {
-             padding: 10px 20px;
-             font-size: 1em;
-             cursor: pointer;
-             border: none;
-             border-radius: 5px;
-             background-color: #008080; /* Teal */
-             color: #f0f0f0;
-             transition: background-color 0.3s ease;
-         }
-         button:hover {
-             background-color: #009999; /* Darker Teal */
-         }
-    </style>
-</head>
-<body>
-    <div class="settings-container">
-        <h2>Settings</h2>
-
-        <div class="setting-item">
-            <label for="player-name">Player Name:</label>
-            <input type="text" id="player-name" maxlength="16" placeholder="Treebard">
-        </div>
-
-        <div class="setting-item">
-            <label for="leaf-color">Leaf Color:</label>
-            <input type="color" id="leaf-color" value="#228B22">
-        </div>
-
-        <div class="setting-item">
-            <label for="trunk-color">Trunk Color:</label>
-            <input type="color" id="trunk-color" value="#8B4513">
-        </div>
-
-         <div class="setting-item">
-             <label>Canopy Style:</label>
-             <div class="placeholder">
-                 Advanced Customization (Paint / Image Upload) Coming Soon!
-             </div>
-         </div>
-
-
-        <div class="button-group">
-            <button id="save-settings">Save & Back</button>
-        </div>
-
-    </div>
-
-    <script src="settings.js"></script>
-</body>
-</html>
-
---- FILE: main.js ---
-import * as THREE from 'three';
-import { gameState, initializeGameState } from './gameState.js';
-import * as Config from './config.js'; // Import config if needed directly
-import { initScene, renderer, camera, controls, scene } from './sceneSetup.js';
-// Import necessary tree functions for initialization and restart
-import { createPlayerTree, calculateDimensions, disposeTreeMaterials } from './tree.js';
-
-// ++ Import functions from specific UI modules ++
-import { cacheDOMElements } from './ui/elements.js';
-import { setupUIListeners } from './ui/setupListeners.js';
-import { updateUI } from './ui/update.js';
-import { showMessage, clearMessage } from './ui/messageHandler.js'; // Import message handlers
-import { hideGameOverModal } from './ui/gameOver.js'; // Needed for restart
-
-// Import simulation logic
-import { updateSimulation } from './simulation.js';
-
-// --- Global Variables ---
-let clock = new THREE.Clock();
-let animationFrameId = null; // To potentially stop/restart the loop
-
-// --- Initialization Function ---
-function initializeApp() {
-    console.log("Initializing Island Canopy Sim Game...");
-
-    // Set up DOM element references first (from ui/elements.js)
-    cacheDOMElements();
-
-    // Set up Three.js scene, camera, renderer, controls, environment
-    const canvas = document.getElementById('game-canvas'); // Still need canvas ref here
-    if (!canvas) {
-        console.error("Canvas element #game-canvas not found!");
-        return;
-    }
-    initScene(canvas);
-
-    // Initialize game state (loads settings)
-    initializeGameState();
-
-    // Calculate initial dimensions based on the freshly initialized state
-    calculateDimensions(); // Reads gameState directly now
-
-    // Create the initial player tree visuals using the state
-    createPlayerTree(); // Reads gameState directly now
-
-    // Reset camera target *after* tree exists and has dimensions
-     if (controls) {
-        // Use default height from Config if gameState hasn't updated yet
-        const targetY = (gameState.trunkHeight || Config.INITIAL_TRUNK_HEIGHT) / 2;
-        controls.target.set(0, targetY, 0);
-        controls.update(); // Apply immediately
-     } else {
-         console.warn("OrbitControls not available to set target.");
-     }
-
-    // Set up UI event listeners (from ui/setupListeners.js)
-    setupUIListeners();
-
-    // Perform initial UI update (from ui/update.js)
-    updateUI();
-    // Clear message log (from ui/messageHandler.js)
-    clearMessage();
-
-    // Start the main game loop
-    startGameLoop();
-
-    console.log("Game Initialization complete. Starting game loop.");
-}
-
-// --- Main Game Loop ---
-// ++ Ensure this function is fully defined ++
-function gameLoop() {
-    // Request the next frame
-    animationFrameId = requestAnimationFrame(gameLoop);
-
-    // Get time delta for simulation updates
-    const deltaTime = clock.getDelta();
-
-    // Log current state *before* updateSimulation (Optional, can be noisy)
-    // console.log(`MAIN: Loop - Day ${gameState.day}, ${gameState.timeOfDay}, GameOver:${gameState.gameOver}, TimeInCycle:${gameState.timeInCycle.toFixed(1)}`);
-
-
-    // --- Core Loop Logic ---
-    // 1. Update Simulation (handles game logic, physics, time progression, periodic allocation)
-    //    It internally checks if game over.
-    updateSimulation(deltaTime);
-
-    // 2. Update UI (reflects changes in state onto the screen)
-    //    Only update if the game isn't over.
-    if (!gameState.gameOver) {
-        updateUI(); // From ui/update.js
-    }
-
-    // 3. Update Camera Controls (allows damping etc. to work)
-    if (controls) {
-        controls.update();
-    }
-
-    // 4. Render Scene
-    if (renderer && scene && camera) {
-        renderer.render(scene, camera);
-    } else {
-        // Critical components missing, stop the loop to prevent errors
-        console.error("Render components missing in game loop!");
-        if (animationFrameId !== null) {
-            cancelAnimationFrame(animationFrameId);
-            animationFrameId = null;
-        }
-    }
-}
-
-// Helper to start/restart the game loop
-// ++ Ensure this function is fully defined ++
-function startGameLoop() {
-    // Make sure any previous loop is stopped before starting a new one
-    if (animationFrameId !== null) {
-        cancelAnimationFrame(animationFrameId);
-    }
-    clock = new THREE.Clock(); // Reset clock for accurate delta time
-    gameLoop(); // Start the loop
-    console.log("MAIN: Game loop started/restarted."); // Add log
-}
-
-
-// --- Exported Restart Handler ---
-// This function is called by the button listener in ui/setupListeners.js
-export function handleRestart() {
-    console.log("MAIN: Handling Restart Request...");
-
-    // Hide the Game Over modal (from ui/gameOver.js)
-    hideGameOverModal();
-
-    // Clean up old Three.js resources
-    if (gameState.treeMeshGroup) {
-         if(scene) scene.remove(gameState.treeMeshGroup);
-         else console.warn("MAIN: Scene not found during tree cleanup.");
-         disposeTreeMaterials();
-         gameState.treeMeshGroup = null;
-    } else {
-        console.log("MAIN: No old tree mesh group found to remove.");
-        disposeTreeMaterials();
-    }
-
-    // Reset game state logic
-    initializeGameState();
-    console.log("MAIN: Game state initialized.");
-
-    // Calculate dimensions
-    calculateDimensions(); // Reads gameState directly
-    console.log("MAIN: Dimensions calculated.");
-
-    // Create new tree visuals
-    createPlayerTree(); // Reads gameState directly
-    console.log("MAIN: New player tree created.");
-
-    // Reset camera target
-    if (controls) {
-        const targetY = (gameState.trunkHeight || Config.INITIAL_TRUNK_HEIGHT) / 2;
-        controls.target.set(0, targetY, 0);
-        controls.update();
-        console.log("MAIN: Camera target reset.");
-    }
-
-    // Reset UI display elements
-    updateUI();
-    // Clear message log
-    clearMessage();
-
-    // Ensure simulation loop is running and flags are correct
-    startGameLoop(); // Ensure loop is running after reset
-
-    console.log("MAIN: Game Restarted successfully.");
-}
-
-
-// --- Start Application ---
-// This script (main.js) is loaded by game.html
-document.addEventListener('DOMContentLoaded', initializeApp);
-
---- FILE: settings.js ---
-document.addEventListener('DOMContentLoaded', () => {
-    const playerNameInput = document.getElementById('player-name');
-    const leafColorInput = document.getElementById('leaf-color');
-    const trunkColorInput = document.getElementById('trunk-color');
-    const saveButton = document.getElementById('save-settings');
-
-    // --- Load existing settings from localStorage ---
-    function loadSettings() {
-        const storedName = localStorage.getItem('playerName');
-        const storedLeafColor = localStorage.getItem('leafColor');
-        const storedTrunkColor = localStorage.getItem('trunkColor');
-
-        if (playerNameInput) {
-            playerNameInput.value = storedName || 'Treebard'; // Use default if not set
-        }
-        if (leafColorInput) {
-            leafColorInput.value = storedLeafColor || '#228B22'; // Default green
-        }
-        if (trunkColorInput) {
-            trunkColorInput.value = storedTrunkColor || '#8B4513'; // Default brown
-        }
-        console.log('Settings loaded from localStorage');
-    }
-
-    // --- Save current settings to localStorage ---
-    function saveSettings() {
-        if (playerNameInput) {
-            localStorage.setItem('playerName', playerNameInput.value || 'Treebard');
-        }
-        if (leafColorInput) {
-            localStorage.setItem('leafColor', leafColorInput.value);
-        }
-        if (trunkColorInput) {
-            localStorage.setItem('trunkColor', trunkColorInput.value);
-        }
-        console.log('Settings saved to localStorage');
-    }
-
-    // --- Event Listener for Save Button ---
-    if (saveButton) {
-        saveButton.addEventListener('click', () => {
-            saveSettings();
-            // Navigate back to the landing page
-            window.location.href = 'index.html';
-        });
-    }
-
-    // --- Initial Load ---
-    loadSettings();
-});
-
 --- FILE: ui/elements.js ---
 // ui/elements.js
 // Caches and exports references to all UI DOM elements.
@@ -885,61 +1314,56 @@ export function cacheDOMElements() {
 // ui/gameOver.js
 // Handles showing and hiding the Game Over modal UI.
 
-// Import shared game state to read final scores and reason
-import { gameState } from '../gameState.js'; // Adjust path as needed
-// Import UI elements cache
+import { gameState, getMyPlayerState } from '../gameState.js'; // Import state
 import { uiElements } from './elements.js';
-// Import tree function needed to visually update tree on game over
-import { setCanopyVisibility } from '../tree.js'; // Adjust path as needed
+// Tree visibility handled by main loop based on isAlive now
+// import { setCanopyVisibility } from '../tree.js';
 
 /**
  * Displays the Game Over modal, populating it with final stats.
- * Assumes the gameState.gameOver flag and reason have already been set.
+ * Assumes the gameState.gameOver flag, reason, and winnerId have already been set.
  */
 export function showGameOverUI() {
-    console.log("UI: showGameOverUI called."); // Log function start
+    console.log("UI: showGameOverUI called.");
 
-    // Check required elements exist
-    if (!uiElements.gameOverModal) {
-        console.error("UI ERROR: gameOverModal element not found in showGameOverUI!");
-        return;
-    }
-    if (!uiElements.gameOverReasonUI) {
-        console.error("UI ERROR: gameOverReasonUI element not found in showGameOverUI!");
-        // Attempt to continue without the reason text
-    }
-    if (!uiElements.finalDayUI) {
-         console.warn("UI element finalDayUI missing.");
-    }
-     if (!uiElements.finalSeedsUI) {
-         console.warn("UI element finalSeedsUI missing.");
-    }
+    if (!uiElements.gameOverModal) { console.error("UI ERROR: gameOverModal element not found!"); return; }
+    if (!uiElements.gameOverReasonUI) { console.warn("UI element gameOverReasonUI missing."); }
+    if (!uiElements.finalDayUI) { console.warn("UI element finalDayUI missing."); }
+    if (!uiElements.finalSeedsUI) { console.warn("UI element finalSeedsUI missing."); }
 
-
-    console.log(`UI: Attempting to display reason: "${gameState.gameOverReason}"`);
+    // Get local player's final state for display
+    const myFinalState = getMyPlayerState(); // Might be null if disconnected before game over
+    const finalDay = gameState.day;
+    const finalSeeds = myFinalState?.seedCount ?? 0; // Show 0 if state missing
 
     // --- Populate Modal Content ---
-    // Set text content, checking if elements exist first
-    if(uiElements.gameOverReasonUI) {
-        uiElements.gameOverReasonUI.textContent = gameState.gameOverReason;
-        console.log("UI: gameOverReasonUI textContent set.");
+    let reasonText = gameState.gameOverReason;
+    // Check if there's a winner and if it's us
+    if (gameState.winnerId) {
+        const winnerState = gameState.players[gameState.winnerId];
+        const winnerName = winnerState?.playerName || `Player ${gameState.winnerId.substring(0,4)}`;
+        if (gameState.winnerId === gameState.myId) {
+            reasonText += `<br><strong>Congratulations, you had the most seeds!</strong>`;
+        } else {
+             reasonText += `<br>Winner: ${winnerName} with ${winnerState?.seedCount ?? '?'} seeds.`;
+        }
     } else {
-        console.log("UI: gameOverReasonUI element was missing, couldn't set text.");
+        // Handle cases with no winner? (e.g., admin stop)
+         reasonText += "<br>No winner declared." // Or specific message
     }
 
+
+    if(uiElements.gameOverReasonUI) {
+        uiElements.gameOverReasonUI.innerHTML = reasonText; // Use innerHTML for the <br> and <strong>
+    }
     if(uiElements.finalDayUI) {
-        uiElements.finalDayUI.textContent = gameState.day;
+        uiElements.finalDayUI.textContent = finalDay;
     }
-
     if(uiElements.finalSeedsUI) {
-        uiElements.finalSeedsUI.textContent = gameState.seedCount;
+        uiElements.finalSeedsUI.textContent = finalSeeds;
     }
 
-    // --- Trigger Visual Changes Associated with Game Over ---
-    // Note: Canopy hiding is logically part of game over, triggered by simulation,
-    // but we ensure it's called here just in case. Best practice is Simulation calls it.
-    setCanopyVisibility(false); // Reads gameState internally now
-
+    // Tree visibility is handled by the main loop checking player.isAlive status
 
     // --- Show the Modal ---
     uiElements.gameOverModal.classList.remove('hidden');
@@ -958,351 +1382,748 @@ export function hideGameOverModal() {
     }
 }
 
---- FILE: ui/setupListeners.js ---
-// ui/setupListeners.js
-// Sets up all necessary event listeners for UI elements.
-
-// Import the cached UI element references
-import { uiElements } from './elements.js';
-
-// Import handler functions from other modules
-import { handleStomataChange, handleAllocationSliderChange } from './controlsHandlers.js'; // Adjust path if needed
-// Game Over modal is handled separately, but restart is triggered from main
-import { handleRestart } from '../main.js'; // Adjust path to go up one level
-
-/**
- * Attaches event listeners to the interactive UI elements.
- * Should be called once after elements are cached.
- */
-export function setupUIListeners() {
-    console.log("UI: Setting up listeners...");
-
-    // Check essential elements exist before adding listeners
-    const essentialControls = [
-        uiElements.stomataSlider,
-        uiElements.savingsSlider,
-        uiElements.growthRatioSlider,
-        uiElements.restartButton
-    ];
-    if (essentialControls.some(el => !el)) {
-        console.error("Cannot set up UI listeners - one or more essential controls missing!");
-        // Find which one is missing
-        if (!uiElements.stomataSlider) console.error("- Stomata slider missing");
-        if (!uiElements.savingsSlider) console.error("- Savings slider missing");
-        if (!uiElements.growthRatioSlider) console.error("- Growth ratio slider missing");
-        if (!uiElements.restartButton) console.error("- Restart button missing");
-        return;
-    }
-
-    // Control Sliders
-    uiElements.stomataSlider.addEventListener('input', handleStomataChange);
-    uiElements.savingsSlider.addEventListener('input', handleAllocationSliderChange);
-    uiElements.growthRatioSlider.addEventListener('input', handleAllocationSliderChange);
-
-    // Restart Button (on Game Over Modal)
-    uiElements.restartButton.addEventListener('click', handleRestart);
-
-    // Add listeners for any other interactive elements here (e.g., leaderboard expand)
-
-    console.log("UI: Listeners set up.");
-}
-
---- FILE: ui/update.js ---
-// ui/update.js
-// Contains the main updateUI function to refresh dynamic UI elements.
-
-import { gameState } from '../gameState.js'; // Reads current state
-import * as Config from '../config.js'; // Needs constants like MAX values, cycle lengths
-import { uiElements } from './elements.js'; // Needs element references
-
-/**
- * Updates all relevant UI elements based on the current gameState.
- * Called each frame in the main game loop.
- */
-export function updateUI() {
-    // Prevent updates if gameState or essential elements aren't ready
-    if (!gameState || !uiElements.carbonBar || !uiElements.dayCounterUI) {
-        // console.warn("updateUI called before gameState or essential UI ready.");
-        return;
-    }
-
-    // Update Status Bars (Bottom Left)
-    if (uiElements.carbonBar) {
-        uiElements.carbonBar.style.width = `${(gameState.carbonStorage / Config.MAX_CARBON) * 100}%`;
-    }
-    if (uiElements.hydraulicBar) {
-        uiElements.hydraulicBar.style.width = `${(gameState.hydraulicSafety / Config.MAX_HYDRAULIC) * 100}%`;
-    }
-    if (uiElements.carbonValueUI) {
-        uiElements.carbonValueUI.textContent = Math.floor(gameState.carbonStorage);
-    }
-    if (uiElements.hydraulicValueUI) {
-        uiElements.hydraulicValueUI.textContent = Math.floor(gameState.hydraulicSafety);
-    }
-    if (uiElements.seedCounterUI) {
-        uiElements.seedCounterUI.textContent = gameState.seedCount;
-    }
-
-    // Update Info (Top Left)
-    if (uiElements.dayCounterUI) {
-        uiElements.dayCounterUI.textContent = gameState.day;
-    }
-    if (uiElements.timeOfDayUI) {
-        // Update based on visual cycle state if kept
-        uiElements.timeOfDayUI.textContent = gameState.timeOfDay.charAt(0).toUpperCase() + gameState.timeOfDay.slice(1);
-    }
-    // Update Cycle Timer (Top Left) - showing time left until next allocation/day increment
-    const allocationCycleLength = Config.DAY_DURATION_SECONDS;
-    const timeSinceLastCycleStart = gameState.timeInCycle % allocationCycleLength;
-    const timeLeftInCycle = Math.max(0, allocationCycleLength - timeSinceLastCycleStart);
-    if (uiElements.cycleTimerUI) {
-        uiElements.cycleTimerUI.textContent = Math.floor(timeLeftInCycle);
-    }
-    if (uiElements.weatherStatusUI) {
-        // Example weather display based on drought factor
-        uiElements.weatherStatusUI.textContent = gameState.droughtFactor > 1.2 ? "Dry" : gameState.droughtFactor < 0.8 ? "Wet" : "Clear";
-    }
-
-    // Update Controls (Bottom Bar) - Ensure they reflect current game state
-    // Primarily needed for initialization/restart, user input normally syncs these
-    if (uiElements.stomataSlider) {
-        // Only update if the value differs significantly, prevent overriding user input mid-drag?
-        // Or maybe simpler: just ensure it reflects state if not actively focused?
-        // For now, let's update if different - might cause slight jump after drag end
-        if (parseFloat(uiElements.stomataSlider.value) !== gameState.stomatalConductance) {
-            uiElements.stomataSlider.value = gameState.stomatalConductance;
-        }
-    }
-    if (uiElements.stomataValueUI) {
-        uiElements.stomataValueUI.textContent = `${Math.round(gameState.stomatalConductance * 100)}%`;
-    }
-
-    // Update Allocation Sliders and their percentage displays
-    if (uiElements.savingsSlider) {
-        if (parseInt(uiElements.savingsSlider.value) !== gameState.lastSavingsPercent) {
-             uiElements.savingsSlider.value = gameState.lastSavingsPercent;
-        }
-    }
-     if (uiElements.savingsPercentageUI) {
-        uiElements.savingsPercentageUI.textContent = `${gameState.lastSavingsPercent}%`;
-     }
-
-    if (uiElements.growthRatioSlider) {
-        if (parseInt(uiElements.growthRatioSlider.value) !== gameState.lastGrowthRatioPercent) {
-            uiElements.growthRatioSlider.value = gameState.lastGrowthRatioPercent;
-        }
-    }
-     if (uiElements.growthRatioPercentageUI) {
-        const seedRatioPercent = 100 - gameState.lastGrowthRatioPercent;
-        uiElements.growthRatioPercentageUI.textContent = `${gameState.lastGrowthRatioPercent}%/${seedRatioPercent}%`;
-     }
-
-
-    // Update Leaderboard (Top Right - Basic for SP)
-     if (uiElements.leaderboardListUI) {
-         uiElements.leaderboardListUI.innerHTML = `<li>${gameState.playerName || 'Player'}: ${gameState.seedCount} Seeds</li>`;
-     }
-     if (uiElements.treeCountUI) {
-         // Assuming '1' active tree unless game over
-         uiElements.treeCountUI.textContent = gameState.gameOver ? 0 : 1;
-     }
-}
-
 --- FILE: simulation.js ---
-// Simulation Module: Handles game logic updates, physics, time
+// Simulation Module: Handles game logic updates, physics, time, weather
 
 import { gameState } from './gameState.js';
 import * as Config from './config.js';
-// Need growTree now for allocation step
-import { growTree, updateCanopyVisuals, setCanopyVisibility } from './tree.js';
-// Still need UI functions for messages and game over
-import { showMessage, showGameOverUI, clearMessage } from './ui.js';
-import { sunLight } from './sceneSetup.js'; // Keep for potential visual cycle
+// Import necessary functions from tree.js
+import { growTree, updateCanopyTiles, setCanopyVisibility, updateTreeGeometry } from './tree.js';
+// Import UI functions from specific modules
+import { showMessage, clearMessage } from './ui/messageHandler.js';
+import { showGameOverUI } from './ui/gameOver.js';
+// Import environment control functions
+import { setWeatherTargets, startRain, stopRain } from './environment.js'; // Added start/stop rain
 
-// REMOVED startNewDay function export
-
+// --- Internal State ---
+let previousPeriodIndex = -2; // Initialize differently from gameState.currentPeriodIndex to trigger initial update
+// Removed wasRainingLastUpdate as the check is now done by comparing oldIsRaining within the transition block
 
 // Updates the simulation state by one time step (deltaTime)
 export function updateSimulation(deltaTime) {
-    // Only check for game over now
     if (gameState.gameOver) return;
 
-    // --- Optional Visual Day/Night Cycle (Doesn't pause simulation) ---
-    const visualCycleDuration = Config.DAY_DURATION_SECONDS + Config.NIGHT_DURATION_SECONDS; // Total visual cycle length
-    gameState.timeInCycle += deltaTime; // Accumulate time globally
-    const cycleProgress = (gameState.timeInCycle % visualCycleDuration) / visualCycleDuration; // Progress through visual cycle (0 to 1)
+    // --- 1. Update Cycle Time ---
+    gameState.timeInCycle += deltaTime;
 
-    if (sunLight) {
-        // Example: Simple intensity change based on cycle progress
-        const dayFraction = Config.DAY_DURATION_SECONDS / visualCycleDuration;
-        if (cycleProgress <= dayFraction) { // Daytime visual
-            const dayProgress = cycleProgress / dayFraction;
-            sunLight.intensity = 0.3 + 1.2 * Math.sin(dayProgress * Math.PI); // Sine peak at midday
-            gameState.timeOfDay = 'day'; // Update UI string
-        } else { // Nighttime visual
-             sunLight.intensity = 0.1; // Dim night light
-             gameState.timeOfDay = 'night'; // Update UI string
-        }
-    } else {
-        // If no sunlight, assume it's always day for simulation logic?
-        gameState.timeOfDay = 'day';
+    // --- 2. Determine Current Phase & Handle Transitions ---
+    let enteringNewDay = false;
+    if (gameState.timeInCycle >= Config.TOTAL_CYCLE_DURATION) {
+        // --- Start of a New Day ---
+        enteringNewDay = true;
+        gameState.day++;
+        gameState.timeInCycle -= Config.TOTAL_CYCLE_DURATION; // Wrap time
+        gameState.currentPeriodIndex = 0; // Start at period 0
+        gameState.isNight = false;
+        gameState.growthAppliedThisCycle = false; // Reset growth flag for the new night
+        previousPeriodIndex = -1; // Ensure weather generation triggers for period 0
+        console.log(`--- START DAY ${gameState.day} ---`);
+        // Future: Call catastrophe check logic here
+        showMessage(`Day ${gameState.day} starting.`);
     }
 
+    // Determine current logical period index and night status
+    let calculatedPeriodIndex;
+    if (gameState.timeInCycle < Config.DAY_TOTAL_DURATION) {
+        // --- Daytime ---
+        calculatedPeriodIndex = Math.floor(gameState.timeInCycle / Config.PERIOD_DURATION);
+        gameState.isNight = false;
+    } else {
+        // --- Nighttime ---
+        calculatedPeriodIndex = -1; // Use -1 to denote night
+        gameState.isNight = true;
+    }
 
-    // --- Physiological Simulation (Always runs) ---
+    // --- Check for Period/Phase Transitions ---
+    const periodChanged = calculatedPeriodIndex !== previousPeriodIndex;
+    let isCloudyCurrentPeriod = false; // Track cloudiness for target setting
+    // let rainStatusChanged = false; // Flag to check if rain starts/stops - check done inline
+
+    if (periodChanged || enteringNewDay) {
+        const oldIsRaining = gameState.isRaining; // Store state *before* generating new weather
+
+        gameState.currentPeriodIndex = calculatedPeriodIndex; // Update state index
+
+        if (!gameState.isNight) {
+            // --- Entering a New Daytime Period ---
+            isCloudyCurrentPeriod = generatePeriodWeather(gameState.currentPeriodIndex); // Generates light, drought, rain state
+            console.log(`Entering Day Period ${gameState.currentPeriodIndex}: Light=${gameState.currentLightMultiplier.toFixed(2)}, Drought=${gameState.currentDroughtFactor.toFixed(2)}, Raining=${gameState.isRaining}`);
+            setWeatherTargets(false, isCloudyCurrentPeriod, gameState.isRaining);
+        } else {
+            // --- Entering Nighttime ---
+            generateNightWeather(); // Generates night rain state
+            gameState.foliarUptakeAppliedThisNight = false; // Reset foliar uptake flag
+            console.log(`Entering Night: Raining=${gameState.isRaining}`);
+            setWeatherTargets(true, false, gameState.isRaining); // Pass isRaining for conditional star visibility
+        }
+
+        // Check if rain status changed and trigger effects
+        if (oldIsRaining !== gameState.isRaining) {
+            if (gameState.isRaining) {
+                startRain(); // Call function from environment.js
+            } else {
+                stopRain(); // Call function from environment.js
+            }
+        }
+
+        previousPeriodIndex = gameState.currentPeriodIndex; // Update tracked index
+    }
+
+    // --- 3. Apply Ongoing Physiological Processes ---
     const stomata = gameState.stomatalConductance;
     const effLA = Math.max(0, gameState.effectiveLA);
     const currentLA = Math.max(0, gameState.currentLA);
     const trunkVolume = Math.max(0, gameState.trunkWidth * gameState.trunkDepth * gameState.trunkHeight);
 
-    // Photosynthesis (Gain modulated by visual light intensity)
-    const currentLightIntensity = sunLight ? Math.max(0, sunLight.intensity / 1.5) : 1.0; // Approx 0-1
-    const potentialCarbonGain = Config.PHOTOSYNTHESIS_RATE_PER_LA * effLA * stomata * currentLightIntensity;
-    gameState.carbonStorage += potentialCarbonGain * deltaTime;
+    // Photosynthesis (Only during Day)
+    let potentialCarbonGain = 0;
+    if (!gameState.isNight) {
+        potentialCarbonGain = Config.PHOTOSYNTHESIS_RATE_PER_LA * effLA * stomata * gameState.currentLightMultiplier;
+    }
 
     // Respiration (Always happens)
     const respirationLoss = (Config.RESPIRATION_RATE_PER_LA * currentLA + Config.RESPIRATION_RATE_PER_TRUNK_VOL * trunkVolume);
-    gameState.carbonStorage -= respirationLoss * deltaTime;
 
-    // Transpiration & Hydraulics (Always happens)
-    const waterLoss = Config.TRANSPIRATION_RATE_PER_LA * effLA * stomata * gameState.droughtFactor;
-    const hydraulicChange = (Config.HYDRAULIC_RECOVERY_RATE * (1 - stomata)) - waterLoss;
+    // Hydraulics (Always happens, rate depends on weather)
+    const waterLoss = Config.TRANSPIRATION_RATE_PER_LA * effLA * stomata * gameState.currentDroughtFactor;
+    let currentRecoveryRate = Config.HYDRAULIC_RECOVERY_RATE;
+    if (gameState.isRaining) {
+        currentRecoveryRate *= Config.RAIN_RECOVERY_BONUS_MULT; // Bonus recovery during rain
+    }
+    const hydraulicChange = (currentRecoveryRate * (1 - stomata)) - waterLoss;
     gameState.hydraulicSafety += hydraulicChange * deltaTime;
 
-    // Clamp values
-    gameState.carbonStorage = Math.max(0, Math.min(Config.MAX_CARBON, gameState.carbonStorage));
-    gameState.hydraulicSafety = Math.max(0, Math.min(Config.MAX_HYDRAULIC, gameState.hydraulicSafety));
+    // Apply Carbon Changes (Source Limited)
+    const potentialGainThisStep = potentialCarbonGain * deltaTime;
+    const respirationLossThisStep = respirationLoss * deltaTime;
+    const currentStorage = gameState.carbonStorage;
+    const maxPossibleGain = Math.max(0, Config.MAX_CARBON - currentStorage);
+    const actualGain = Math.min(potentialGainThisStep, maxPossibleGain);
+    gameState.carbonStorage = currentStorage + actualGain - respirationLossThisStep;
 
-    // --- Crown Dieback / Damage ---
+    // Clamp Values
+    gameState.carbonStorage = Math.max(0, gameState.carbonStorage);
+    gameState.hydraulicSafety = Math.max(0, Math.min(gameState.maxHydraulic, gameState.hydraulicSafety));
+
+    // Crown Dieback / Damage
     const wasStressed = gameState.hydraulicSafety < Config.HYDRAULIC_DAMAGE_THRESHOLD;
     if (gameState.hydraulicSafety < Config.HYDRAULIC_DAMAGE_THRESHOLD) {
         const damageIncrease = Config.CROWN_DIEBACK_RATE * deltaTime;
         gameState.damagedLAPercentage = Math.min(1, gameState.damagedLAPercentage + damageIncrease);
         gameState.effectiveLA = gameState.currentLA * (1 - gameState.damagedLAPercentage);
-        updateCanopyVisuals(); // Reads gameState directly now
+        updateCanopyTiles(); // Update visual damage
         showMessage(`Hydraulic stress! Canopy damage! Safety: ${gameState.hydraulicSafety.toFixed(0)}`, 'warning');
     } else {
-         if (wasStressed) { clearMessage(); }
-         if (gameState.damagedLAPercentage === 0) { updateCanopyVisuals(); } // Reads gameState directly
+         if (wasStressed) {
+            clearMessage(); // Clear warning when recovered above threshold
+            updateCanopyTiles(); // Update visuals (color might change)
+        }
     }
 
-    // --- Periodic Allocation & Day Increment ---
-    // Check if enough time has passed for an allocation cycle
-    const allocationCycleLength = Config.DAY_DURATION_SECONDS; // Use day duration as interval
-    // Check if the *total accumulated time* crosses a multiple of the cycle length
-    // Example: Day ends at 20s, 40s, 60s etc.
-    // This requires tracking total time or checking if timeInCycle just wrapped around 0 after exceeding duration
-    // Simpler: Use modulo, but needs careful handling if deltaTime > cycleLength
-    // Let's use a state variable to track if allocation is due this frame
-    if (!gameState.allocationAppliedThisCycle && gameState.timeInCycle >= allocationCycleLength) {
-         console.log(`SIM: End of Day ${gameState.day}. Applying allocation.`);
-         applyAllocation(); // Call the allocation function
-         gameState.day++; // Increment the day count
-         gameState.timeInCycle -= allocationCycleLength; // Reset timer relative to overshoot
-         gameState.allocationAppliedThisCycle = true; // Mark as applied
+    // --- 4. Handle Specific Timed Events (Night Logic) ---
+    if (gameState.isNight) {
+        // Foliar Water Uptake
+        if (gameState.isRaining && !gameState.foliarUptakeAppliedThisNight) {
+            applyFoliarUptake(); // Apply the boost once
+            gameState.foliarUptakeAppliedThisNight = true;
+        }
 
-         clearMessage(); // Clear previous message
-         showMessage(`Day ${gameState.day} starting.`); // Show new day message
-    } else if (gameState.timeInCycle < allocationCycleLength) {
-         // Reset the flag once the timer is below the threshold again
-         gameState.allocationAppliedThisCycle = false;
+        // Growth Allocation Trigger
+        const timeIntoNight = gameState.timeInCycle - Config.DAY_TOTAL_DURATION;
+        if (timeIntoNight >= Config.GROWTH_OFFSET_NIGHT && !gameState.growthAppliedThisCycle) {
+            console.log(`SIM: Triggering growth allocation at ${timeIntoNight.toFixed(2)}s into night.`);
+            applyAllocation(); // Call the allocation function
+            gameState.growthAppliedThisCycle = true; // Mark as done for this night cycle
+        }
     }
 
+    // NOTE: updateEnvironmentVisuals and updateRain called from main.js loop
 
-    // --- Check Game Over Conditions (Check AFTER allocation potentially reduces carbon) ---
-    if (gameState.carbonStorage <= 0) {
+    // --- 5. Check Game Over Conditions ---
+    if (gameState.carbonStorage <= 0 && !gameState.gameOver) {
         triggerGameOver("Starvation! Ran out of carbon.");
         return;
     }
-    if (gameState.hydraulicSafety <= 0) {
+    if (gameState.hydraulicSafety <= 0 && !gameState.gameOver) {
         triggerGameOver("Desiccation! Hydraulic system failed.");
         return;
     }
 }
 
-// --- Function to Apply Allocation ---
+// --- Helper Functions ---
+
+// Generates weather for a specific daytime period, RETURNS isCloudy status
+function generatePeriodWeather(periodIndex) {
+    const isSunny = Math.random() < Config.SUNNY_PROB;
+    const isCloudy = !isSunny;
+    gameState.currentLightMultiplier = isCloudy ? Config.LIGHT_MULT_CLOUDY : Config.LIGHT_MULT_SUNNY;
+    const droughtVariation = (Math.random() * 2 - 1) * Config.DROUGHT_VARIATION;
+    gameState.currentDroughtFactor = Math.max(0.1, Config.DROUGHT_MULT_BASE + droughtVariation);
+    gameState.isRaining = isCloudy && (Math.random() < Config.RAIN_PROB_IF_CLOUDY);
+    return isCloudy;
+}
+
+// Determines if it rains during the night
+function generateNightWeather() {
+    const isConceptuallyCloudy = Math.random() >= Config.SUNNY_PROB;
+    gameState.isRaining = isConceptuallyCloudy && (Math.random() < Config.RAIN_PROB_IF_CLOUDY);
+    gameState.currentLightMultiplier = 0;
+    gameState.currentDroughtFactor = Config.DROUGHT_MULT_BASE;
+}
+
+// Applies the foliar uptake boost
+function applyFoliarUptake() {
+    const currentSafety = gameState.hydraulicSafety;
+    const boostAmount = Config.NIGHT_RAIN_HYDRAULIC_BOOST;
+    gameState.hydraulicSafety = Math.min(currentSafety + boostAmount, gameState.maxHydraulic);
+    console.log(`Foliar Boost: ${currentSafety.toFixed(1)} + ${boostAmount} -> ${gameState.hydraulicSafety.toFixed(1)} (Max: ${gameState.maxHydraulic.toFixed(1)})`);
+    showMessage("Absorbing night rain!", "info");
+}
+
+// Applies carbon allocation decided by player sliders
 function applyAllocation() {
-    // Reads allocation percentages directly from gameState (updated by UI sliders)
     const available = Math.floor(gameState.carbonStorage);
     const savingsPercent = Math.max(0, Math.min(100, gameState.lastSavingsPercent));
     const growthRatioPercent = Math.max(0, Math.min(100, gameState.lastGrowthRatioPercent));
-
-    // Perform calculations
     const carbonToSpend = Math.floor(available * (1 - savingsPercent / 100));
     const actualCarbonForGrowth = Math.floor(carbonToSpend * (growthRatioPercent / 100));
     const carbonForSeeds = carbonToSpend - actualCarbonForGrowth;
-    const seedsToMake = carbonForSeeds; // Since cost = 1
-    const actualCarbonForSeeds = seedsToMake * Config.SEED_COST; // = seedsToMake
-
+    const seedsToMake = carbonForSeeds;
+    const actualCarbonForSeeds = seedsToMake * Config.SEED_COST;
     const totalSpent = actualCarbonForGrowth + actualCarbonForSeeds;
-
-    console.log(`SIM Applying Allocation: Available=${available}, Spend=${totalSpent}, Growth=${actualCarbonForGrowth}, Seeds=${seedsToMake}`);
-
-    // Final sanity checks
+    console.log(`SIM Applying Allocation: Available=${available}, Spend=${totalSpent}, GrowthCarbon=${actualCarbonForGrowth}, Seeds=${seedsToMake}`);
     if (totalSpent > available + 0.01 || totalSpent < 0) {
-        console.error(`SIM ALLOCATION ERROR: Invalid spend calculated (${totalSpent}). Skipping allocation.`);
+        console.error(`SIM ALLOCATION ERROR: Invalid spend calculated (${totalSpent}) vs available (${available}). Skipping allocation.`);
         showMessage("Allocation Error!", "error");
     } else {
-        // Apply changes to gameState
         gameState.carbonStorage -= totalSpent;
         gameState.seedCount += seedsToMake;
         if (actualCarbonForGrowth > 0) {
-            // Call growTree - assumes growTree reads gameState directly now
             growTree(actualCarbonForGrowth);
         }
     }
 }
 
-
-// --- Game Over Logic ---
+// Triggers the game over sequence
 function triggerGameOver(reason) {
+    console.log(`triggerGameOver called. Reason: "${reason}", Current gameOver state: ${gameState.gameOver}`);
     if (gameState.gameOver) return;
     console.log("Game Over:", reason);
     gameState.gameOver = true;
     gameState.gameOverReason = reason;
-    // No need to set isPaused anymore
-    setCanopyVisibility(false); // Assumes reads gameState directly
+    setCanopyVisibility(false);
     showGameOverUI();
 }
 
---- FILE: config.js ---
-// Game Constants & Configuration
+--- FILE: gameState.js ---
+// gameState.js
+import * as Config from './config.js'; // Keep config for defaults if needed momentarily
 
-export const k_TA_LA_RATIO = 0.01; // Trunk cross-section area / Leaf Area ratio
-export const INITIAL_LEAF_AREA = 5;
-export const INITIAL_TRUNK_HEIGHT = 2;
-export const INITIAL_CARBON = 100;
-export const INITIAL_HYDRAULICS = 100;
+// The main state object. Will be populated primarily by server updates.
+export const gameState = {
+    // --- Server Synced State (Defaults for initial load) ---
+    day: 1,
+    timeInCycle: 0.0,
+    currentPeriodIndex: -1,
+    isNight: false,
+    currentLightMultiplier: 1.0,
+    currentDroughtFactor: Config.DROUGHT_MULT_BASE,
+    isRaining: false,
+    gamePhase: 'loading', // Start in a 'loading' phase until server confirms
+    players: {}, // Stores player state keyed by ID: { id: { ...playerData } }
+    serverTime: Date.now(),
 
-export const MAX_CARBON = 200;
-export const MAX_HYDRAULIC = 100;
+    // --- Client-Specific State ---
+    // Local player's ID (set on connection)
+    myId: null,
+    // Spectator status (set on connection/load)
+    isSpectator: false, // TODO: Implement spectator joining logic
+    // Game over state (set by server 'gameOver' event)
+    gameOver: false,
+    gameOverReason: '',
+    winnerId: null, // ID of the winner
 
-export const PHOTOSYNTHESIS_RATE_PER_LA = 0.5; // Carbon gain per LA per second at max light & stomata=1
-export const RESPIRATION_RATE_PER_LA = 0.02;   // Carbon loss per LA per second
-export const RESPIRATION_RATE_PER_TRUNK_VOL = 0.01; // Carbon loss per trunk volume per second
-export const TRANSPIRATION_RATE_PER_LA = 0.4; // Water loss rate per LA per sec at stomata=1, normal drought
-export const HYDRAULIC_RECOVERY_RATE = 2;   // Safety gain per second if stomata closed & water available
-export const HYDRAULIC_DAMAGE_THRESHOLD = 20; // Below this, start taking damage
-export const CROWN_DIEBACK_RATE = 0.05;      // Proportion of canopy LA potentially lost per second below threshold
+    // --- Old Local State (To be removed or carefully managed) ---
+    // These values will now come from the 'players' object above, indexed by myId
+    // carbonStorage: Config.INITIAL_CARBON,
+    // hydraulicSafety: Config.INITIAL_HYDRAULICS,
+    // currentLA: Config.INITIAL_LEAF_AREA,
+    // effectiveLA: Config.INITIAL_LEAF_AREA,
+    // trunkHeight: Config.INITIAL_TRUNK_HEIGHT,
+    // seedCount: 0,
+    // stomatalConductance: 0.5, // Input state, sent to server
+    // damagedLAPercentage: 0,
+    // playerName: 'Treebard', // Loaded from localStorage, sent to server on join?
+    // leafColor: Config.DEFAULT_LEAF_COLOR,
+    // trunkColor: Config.DEFAULT_TRUNK_COLOR,
+    // lastSavingsPercent: 50, // Input state, sent to server
+    // lastGrowthRatioPercent: 50, // Input state, sent to server
+    // maxHydraulic: 0,
 
-export const GROWTH_COST_PER_LA = 5;        // Carbon cost to add 1 unit of LA (includes implicit trunk cost)
-export const SEED_COST = 1;                 // Carbon cost per seed (Already updated)
+    // Tree object references (Client-side rendering objects)
+    // We need a way to map player IDs to their tree meshes
+    playerTrees: new Map(), // Map<playerId, THREE.Group>
 
-export const DAY_DURATION_SECONDS = 20;     // Duration of daytime
-export const NIGHT_DURATION_SECONDS = 8;     // Duration of nighttime (Still exists conceptually, but idle phase skipped)
+    // Flag to indicate if the initial state has been received
+    initialStateReceived: false,
+};
 
-export const ISLAND_RADIUS = 50;
-export const WATER_LEVEL = 0;
-export const ISLAND_LEVEL = 0.1;
+// We no longer initialize the full state here.
+// Server will send the authoritative state.
+// We might load local settings like name/color here later.
+export function loadClientSettings() {
+    // Placeholder for loading player name/color prefs later
+    // const savedName = localStorage.getItem('playerName') || 'Treebard';
+    // const savedLeafColor = localStorage.getItem('leafColor') || Config.DEFAULT_LEAF_COLOR;
+    // const savedTrunkColor = localStorage.getItem('trunkColor') || Config.DEFAULT_TRUNK_COLOR;
+    // gameState.playerName = savedName;
+    // gameState.leafColor = savedLeafColor;
+    // gameState.trunkColor = savedTrunkColor;
+    console.log("Client settings loaded (placeholder).");
+}
 
-export const DEFAULT_LEAF_COLOR = '#228B22'; // Forest Green
-export const DEFAULT_TRUNK_COLOR = '#8B4513'; // Saddle Brown
+// Call settings load immediately (can be done in main.js too)
+loadClientSettings();
 
-// UI Related
-// ++ UPDATED Timer Duration ++
-export const ALLOCATION_TIMER_DURATION = 10; // Seconds for allocation decision (Changed from 7)
+// Helper function to get the local player's state object
+export function getMyPlayerState() {
+    if (!gameState.myId || !gameState.players[gameState.myId]) {
+        return null; // Not connected or state not received yet
+    }
+    return gameState.players[gameState.myId];
+}
+
+--- FILE: server/server.js ---
+// server/server.js
+
+import express from 'express';
+import http from 'http';
+import { Server as SocketIOServer } from 'socket.io';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import * as Config from './config.js'; // Import server-side config
+
+// Helper to get __dirname in ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename); // Directory of server.js
+const projectRoot = path.join(__dirname, '..'); // Go up one level to project root
+
+const app = express();
+const server = http.createServer(app);
+const io = new SocketIOServer(server);
+
+const PORT = process.env.PORT || 3000;
+
+// --- Game Constants ---
+const TICK_RATE = 20; // Updates per second
+const TICK_INTERVAL_MS = 1000 / TICK_RATE;
+let lastTickTime = Date.now();
+let simulationInterval = null; // To hold the interval ID
+
+// --- Game State ---
+let globalGameState = {
+    day: 1,
+    timeInCycle: 0.0,
+    currentPeriodIndex: -1, // -1: Initial/Night, 0-2: Day periods
+    isNight: false,
+    currentLightMultiplier: Config.LIGHT_MULT_SUNNY, // Initial assumption
+    currentDroughtFactor: Config.DROUGHT_MULT_BASE,
+    isRaining: false,
+    gamePhase: 'lobby', // 'lobby', 'countdown', 'playing', 'ended'
+    // Add other global state as needed
+};
+
+// Store players: { socketId: playerData }
+// playerData structure will evolve
+let players = {};
+function initializePlayerState(socketId) {
+    const initialLA = Config.INITIAL_LEAF_AREA;
+    const maxHydraulic = Config.BASE_HYDRAULIC + Config.HYDRAULIC_SCALE_PER_LA * initialLA;
+    return {
+        id: socketId,
+        // --- Player Attributes ---
+        playerName: `Player_${socketId.substring(0, 4)}`, // Default name
+        leafColor: '#228B22', // Default color (client can override later)
+        trunkColor: '#8B4513', // Default color
+        spawnPoint: { x: 0, y: Config.ISLAND_LEVEL, z: 0 }, // Default spawn (will be chosen later)
+        isAlive: false, // Becomes true when game starts
+
+        // --- Core Resources ---
+        carbonStorage: Config.INITIAL_CARBON,
+        hydraulicSafety: Math.min(Config.INITIAL_HYDRAULICS, maxHydraulic), // Clamp initial
+        maxHydraulic: maxHydraulic,
+
+        // --- Size & Structure ---
+        currentLA: initialLA,
+        effectiveLA: initialLA, // Start undamaged
+        trunkHeight: Config.INITIAL_TRUNK_HEIGHT,
+        trunkWidth: Math.sqrt(initialLA * Config.k_TA_LA_RATIO), // Calculate initial derived
+        trunkDepth: Math.sqrt(initialLA * Config.k_TA_LA_RATIO),
+
+        // --- Status & Outputs ---
+        seedCount: 0,
+        damagedLAPercentage: 0,
+
+        // --- Player Inputs (Server authoritative state) ---
+        stomatalConductance: 0.5, // Default
+        lastSavingsPercent: 50,   // Default
+        lastGrowthRatioPercent: 50, // Default
+
+        // --- Internal Simulation State ---
+        foliarUptakeAppliedThisNight: false,
+        growthAppliedThisCycle: false,
+    };
+}
+
+// --- Serve Static Files & Routes (Keep as before) ---
+console.log(`Serving static files from: ${projectRoot}`);
+app.use(express.static(projectRoot));
+app.get('/', (req, res) => { res.sendFile(path.join(projectRoot, 'index.html')); });
+app.get('/game', (req, res) => { res.sendFile(path.join(projectRoot, 'game.html')); });
+app.get('/settings', (req, res) => { res.sendFile(path.join(projectRoot, 'settings.html')); });
+// Add /admin route later
+
+// --- Socket.IO Connection Handling ---
+io.on('connection', (socket) => {
+    console.log(`Player connected: ${socket.id}`);
+    players[socket.id] = initializePlayerState(socket.id);
+    console.log("Current players:", Object.keys(players).length);
+
+    // Send initial full game state to the new player (lobby state for now)
+    socket.emit('gameStateUpdate', getFullGameStateSnapshot());
+
+    // Inform others (optional for lobby)
+    // socket.broadcast.emit('playerConnected', players[socket.id]);
+
+    socket.on('disconnect', () => {
+        console.log(`Player disconnected: ${socket.id}`);
+        delete players[socket.id];
+        console.log("Current players:", Object.keys(players).length);
+        // Inform others
+        io.emit('playerDisconnected', socket.id); // Broadcast the ID of the disconnected player
+        // Stop simulation if no players left? (Handle later in game flow)
+    });
+
+    // Add input listeners later...
+});
+
+// --- Server-Side Simulation Loop ---
+
+function updateGame() {
+    const now = Date.now();
+    const deltaTime = (now - lastTickTime) / 1000.0; // Delta time in seconds
+    lastTickTime = now;
+
+    // Only run simulation if in 'playing' phase
+    if (globalGameState.gamePhase !== 'playing') {
+        // We might still want to update countdown timer here later
+        return;
+    }
+
+    // --- 1. Update Global Time ---
+    globalGameState.timeInCycle += deltaTime;
+
+    // --- 2. Handle Cycle Transitions & Weather ---
+    let enteringNewDay = false;
+    if (globalGameState.timeInCycle >= Config.TOTAL_CYCLE_DURATION) {
+        enteringNewDay = true;
+        globalGameState.day++;
+        globalGameState.timeInCycle -= Config.TOTAL_CYCLE_DURATION;
+        globalGameState.currentPeriodIndex = 0;
+        globalGameState.isNight = false;
+        // Reset per-cycle flags for all players
+        Object.values(players).forEach(p => {
+             p.growthAppliedThisCycle = false;
+        });
+        console.log(`SERVER: --- START DAY ${globalGameState.day} ---`);
+        // TODO: Reset previousPeriodIndex logic if needed here or rely on change detection below
+    }
+
+    // Determine current logical period index and night status
+    let calculatedPeriodIndex;
+    if (globalGameState.timeInCycle < Config.DAY_TOTAL_DURATION) {
+        calculatedPeriodIndex = Math.floor(globalGameState.timeInCycle / Config.PERIOD_DURATION);
+        globalGameState.isNight = false;
+    } else {
+        calculatedPeriodIndex = -1; // Night
+        globalGameState.isNight = true;
+    }
+
+    // Check for Period/Phase Transitions & Generate Weather
+    const periodChanged = calculatedPeriodIndex !== globalGameState.currentPeriodIndex || enteringNewDay;
+    if (periodChanged) {
+        const oldPeriodIndex = globalGameState.currentPeriodIndex; // Store previous index
+        globalGameState.currentPeriodIndex = calculatedPeriodIndex;
+
+        if (!globalGameState.isNight) {
+            // New Daytime Period
+            const isCloudy = generatePeriodWeather(); // Updates globalGameState directly
+            globalGameState.isRaining = isCloudy && (Math.random() < Config.RAIN_PROB_IF_CLOUDY);
+            console.log(`SERVER: Entering Day Period ${globalGameState.currentPeriodIndex}: Light=${globalGameState.currentLightMultiplier.toFixed(2)}, Drought=${globalGameState.currentDroughtFactor.toFixed(2)}, Raining=${globalGameState.isRaining}`);
+        } else {
+            // Entering Nighttime
+            if (oldPeriodIndex !== -1) { // Only generate weather once when entering night
+                generateNightWeather(); // Updates globalGameState directly
+                // Reset foliar uptake flags for all players
+                Object.values(players).forEach(p => { p.foliarUptakeAppliedThisNight = false; });
+                console.log(`SERVER: Entering Night: Raining=${globalGameState.isRaining}`);
+            }
+        }
+        // Note: Visual transitions (lerping) happen client-side based on this state
+    }
+
+
+    // --- 3. Update Each Player's State ---
+    Object.values(players).forEach(playerState => {
+        if (!playerState.isAlive) return; // Skip dead players
+
+        const stomata = playerState.stomatalConductance;
+        const effLA = Math.max(0, playerState.effectiveLA);
+        const currentLA = Math.max(0, playerState.currentLA);
+        const trunkVolume = Math.max(0, playerState.trunkWidth * playerState.trunkDepth * playerState.trunkHeight);
+
+        // Photosynthesis (Day Only)
+        let potentialCarbonGain = 0;
+        if (!globalGameState.isNight) {
+            potentialCarbonGain = Config.PHOTOSYNTHESIS_RATE_PER_LA * effLA * stomata * globalGameState.currentLightMultiplier;
+        }
+
+        // Respiration
+        const respirationLoss = (Config.RESPIRATION_RATE_PER_LA * currentLA + Config.RESPIRATION_RATE_PER_TRUNK_VOL * trunkVolume);
+
+        // Hydraulics
+        const waterLoss = Config.TRANSPIRATION_RATE_PER_LA * effLA * stomata * globalGameState.currentDroughtFactor;
+        let currentRecoveryRate = Config.HYDRAULIC_RECOVERY_RATE;
+        if (globalGameState.isRaining) {
+            currentRecoveryRate *= Config.RAIN_RECOVERY_BONUS_MULT;
+        }
+        const hydraulicChange = (currentRecoveryRate * (1 - stomata)) - waterLoss;
+        playerState.hydraulicSafety += hydraulicChange * deltaTime;
+
+        // Apply Carbon Changes
+        const potentialGainThisStep = potentialCarbonGain * deltaTime;
+        const respirationLossThisStep = respirationLoss * deltaTime;
+        const currentStorage = playerState.carbonStorage;
+        const maxPossibleGain = Math.max(0, Config.MAX_CARBON - currentStorage);
+        const actualGain = Math.min(potentialGainThisStep, maxPossibleGain);
+        playerState.carbonStorage = currentStorage + actualGain - respirationLossThisStep;
+
+        // Clamp Values
+        playerState.carbonStorage = Math.max(0, playerState.carbonStorage);
+        playerState.hydraulicSafety = Math.max(0, Math.min(playerState.maxHydraulic, playerState.hydraulicSafety));
+
+        // Crown Dieback / Damage
+        if (playerState.hydraulicSafety < Config.HYDRAULIC_DAMAGE_THRESHOLD) {
+            const damageIncrease = Config.CROWN_DIEBACK_RATE * deltaTime;
+            playerState.damagedLAPercentage = Math.min(1, playerState.damagedLAPercentage + damageIncrease);
+            playerState.effectiveLA = playerState.currentLA * (1 - playerState.damagedLAPercentage);
+            // Note: Visual update happens client-side based on this percentage
+        }
+
+        // Night Events
+        if (globalGameState.isNight) {
+            // Foliar Uptake
+            if (globalGameState.isRaining && !playerState.foliarUptakeAppliedThisNight) {
+                const boostAmount = Config.NIGHT_RAIN_HYDRAULIC_BOOST;
+                playerState.hydraulicSafety = Math.min(playerState.hydraulicSafety + boostAmount, playerState.maxHydraulic);
+                playerState.foliarUptakeAppliedThisNight = true;
+                // console.log(`SERVER: Foliar Boost for ${playerState.id}`);
+            }
+
+            // Growth Allocation Trigger
+            const timeIntoNight = globalGameState.timeInCycle - Config.DAY_TOTAL_DURATION;
+            if (timeIntoNight >= Config.GROWTH_OFFSET_NIGHT && !playerState.growthAppliedThisCycle) {
+                 console.log(`SERVER: Triggering growth for ${playerState.id}`);
+                 applyAllocation(playerState); // Apply growth based on player's state
+                 playerState.growthAppliedThisCycle = true;
+            }
+        }
+
+        // Check Game Over Conditions for this player
+        if ((playerState.carbonStorage <= 0 || playerState.hydraulicSafety <= 0) && playerState.isAlive) {
+            console.log(`SERVER: Player ${playerState.id} died. Carbon: ${playerState.carbonStorage.toFixed(1)}, Hydraulics: ${playerState.hydraulicSafety.toFixed(1)}`);
+            playerState.isAlive = false;
+            // TODO: Check if this was the last player alive to end the game
+        }
+    });
+
+    // --- 4. Broadcast Game State ---
+    // Send a snapshot of the relevant state to all clients
+    io.emit('gameStateUpdate', getSimplifiedGameStateSnapshot()); // Use simplified snapshot for regular updates
+}
+
+// --- Simulation Helper Functions (Adapted from client simulation.js) ---
+
+function generatePeriodWeather() {
+    const isSunny = Math.random() < Config.SUNNY_PROB;
+    const isCloudy = !isSunny;
+    globalGameState.currentLightMultiplier = isCloudy ? Config.LIGHT_MULT_CLOUDY : Config.LIGHT_MULT_SUNNY;
+    const droughtVariation = (Math.random() * 2 - 1) * Config.DROUGHT_VARIATION;
+    globalGameState.currentDroughtFactor = Math.max(0.1, Config.DROUGHT_MULT_BASE + droughtVariation);
+    // Rain is set separately after checking cloudiness
+    return isCloudy; // Return cloudiness status for rain check
+}
+
+function generateNightWeather() {
+    const isConceptuallyCloudy = Math.random() >= Config.SUNNY_PROB;
+    globalGameState.isRaining = isConceptuallyCloudy && (Math.random() < Config.RAIN_PROB_IF_CLOUDY);
+    globalGameState.currentLightMultiplier = 0; // No light at night
+    globalGameState.currentDroughtFactor = Config.DROUGHT_MULT_BASE; // Assume base drought at night? Or lower? TBD.
+}
+
+function applyAllocation(playerState) {
+    const available = Math.floor(playerState.carbonStorage);
+    if (available <= 0) return; // Cannot allocate if no carbon
+
+    const savingsPercent = Math.max(0, Math.min(100, playerState.lastSavingsPercent));
+    const growthRatioPercent = Math.max(0, Math.min(100, playerState.lastGrowthRatioPercent));
+
+    const carbonToSpend = Math.floor(available * (1 - savingsPercent / 100));
+    const actualCarbonForGrowth = Math.floor(carbonToSpend * (growthRatioPercent / 100));
+    const carbonForSeeds = carbonToSpend - actualCarbonForGrowth;
+    const seedsToMake = Math.floor(carbonForSeeds / Config.SEED_COST); // Ensure integer seeds
+    const actualCarbonForSeeds = seedsToMake * Config.SEED_COST; // Actual cost based on integer seeds
+
+    const totalSpent = actualCarbonForGrowth + actualCarbonForSeeds;
+
+    // Sanity check
+    if (totalSpent > available + 0.01 || totalSpent < 0) {
+        console.error(`SERVER ALLOCATION ERROR for ${playerState.id}: Invalid spend (${totalSpent}) vs available (${available}). Skipping.`);
+        return;
+    }
+
+    playerState.carbonStorage -= totalSpent;
+    playerState.seedCount += seedsToMake;
+
+    if (actualCarbonForGrowth > 0) {
+        // Apply growth logic (updates playerState directly)
+        const currentTrunkVolume = (playerState.trunkWidth || 0.1) * (playerState.trunkDepth || 0.1) * (playerState.trunkHeight || 0.1);
+        const currentBiomassEstimate = Math.max(1, playerState.currentLA + currentTrunkVolume);
+        const biomassToAdd = actualCarbonForGrowth / Config.GROWTH_COST_PER_LA;
+        const growthFactor = 1 + (biomassToAdd / currentBiomassEstimate);
+
+        playerState.currentLA *= growthFactor;
+        playerState.trunkHeight *= growthFactor;
+        // Recalculate derived values
+        playerState.trunkWidth = Math.sqrt(playerState.currentLA * Config.k_TA_LA_RATIO);
+        playerState.trunkDepth = playerState.trunkWidth;
+        playerState.maxHydraulic = Config.BASE_HYDRAULIC + Config.HYDRAULIC_SCALE_PER_LA * playerState.currentLA;
+        playerState.effectiveLA = playerState.currentLA * (1 - playerState.damagedLAPercentage); // Update effective LA after growth
+
+         // console.log(`SERVER: Growth applied for ${playerState.id}. New LA: ${playerState.currentLA.toFixed(1)}, H: ${playerState.trunkHeight.toFixed(1)}`);
+    }
+}
+
+// --- State Snapshot Functions ---
+
+// Creates a lightweight snapshot for frequent updates
+function getSimplifiedGameStateSnapshot() {
+    // Extract only the necessary data for each player
+    const playersSnapshot = {};
+    Object.values(players).forEach(p => {
+        playersSnapshot[p.id] = {
+            id: p.id,
+            playerName: p.playerName,
+            isAlive: p.isAlive,
+            // Resources (send percentage or value?) Value might be better for bars.
+            carbonStorage: p.carbonStorage,
+            hydraulicSafety: p.hydraulicSafety,
+            maxHydraulic: p.maxHydraulic, // Needed to calculate % on client
+            // Visual state
+            currentLA: p.currentLA, // Needed for scaling
+            trunkHeight: p.trunkHeight,
+            damagedLAPercentage: p.damagedLAPercentage,
+            // Score
+            seedCount: p.seedCount,
+            // Add position later when spawning is implemented
+            // position: p.spawnPoint
+        };
+    });
+
+    return {
+        // Global environment
+        day: globalGameState.day,
+        timeInCycle: globalGameState.timeInCycle,
+        currentPeriodIndex: globalGameState.currentPeriodIndex,
+        isNight: globalGameState.isNight,
+        currentLightMultiplier: globalGameState.currentLightMultiplier,
+        currentDroughtFactor: globalGameState.currentDroughtFactor,
+        isRaining: globalGameState.isRaining,
+        // Game Phase
+        gamePhase: globalGameState.gamePhase,
+        // Player states
+        players: playersSnapshot,
+        // Timestamp for debugging/lag comp later?
+        serverTime: Date.now()
+    };
+}
+
+// Creates a full snapshot (e.g., for initial connection)
+function getFullGameStateSnapshot() {
+    // For now, it's the same as the simplified one, but could include more later
+    return getSimplifiedGameStateSnapshot();
+}
+
+
+// --- Game Control Functions ---
+function startGameSimulation() {
+    if (simulationInterval) {
+        console.log("SERVER: Simulation already running.");
+        return;
+    }
+    console.log("SERVER: Starting simulation loop.");
+    lastTickTime = Date.now(); // Reset start time
+    simulationInterval = setInterval(updateGame, TICK_INTERVAL_MS);
+}
+
+function stopGameSimulation() {
+    if (simulationInterval) {
+        console.log("SERVER: Stopping simulation loop.");
+        clearInterval(simulationInterval);
+        simulationInterval = null;
+    }
+}
+
+// --- Start Server ---
+server.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
+    // Don't start the simulation immediately, wait for lobby/start logic
+    // startGameSimulation();
+});
+// server/server.js
+
+// ... (rest of the server code) ...
+
+// Example: Start game manually for testing (replace with lobby logic later)
+setTimeout(() => {
+    if (Object.keys(players).length === 0) {
+         console.log("SERVER: Skipping manual start, no players connected.");
+         return; // Don't start if no one is here
+    }
+    console.log("SERVER: Manually starting game for testing...");
+    globalGameState.gamePhase = 'playing'; // Set phase to playing
+
+    // Mark all connected players as alive and give them a default spawn
+    Object.values(players).forEach((p, index) => { // Get index for slight offset
+         p.isAlive = true; // <<< SET TO TRUE
+         // Simple offset spawn for testing multiple players later
+         const angle = (index / Object.keys(players).length) * Math.PI * 2;
+         const radius = 5; // Spawn in a small circle
+         p.spawnPoint = {
+             x: radius * Math.cos(angle),
+             // Use Config.ISLAND_LEVEL from server config for base height
+             y: Config.ISLAND_LEVEL,
+             z: radius * Math.sin(angle)
+         };
+         console.log(`SERVER: Player ${p.id} marked alive at ${p.spawnPoint.x.toFixed(1)}, ${p.spawnPoint.z.toFixed(1)}`);
+    });
+
+    startGameSimulation(); // Start the actual simulation loop
+}, 5000); // Start after 5 seconds
 
 --- FILE: index.js ---
+// index.js (in project root)
+
 document.addEventListener('DOMContentLoaded', () => {
     const singlePlayerButton = document.getElementById('start-single-player');
     const multiPlayerButton = document.getElementById('start-multi-player');
@@ -1311,7 +2132,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (singlePlayerButton) {
         singlePlayerButton.addEventListener('click', () => {
             console.log("Navigating to Single Player game...");
-            window.location.href = 'game.html'; // Navigate to the main game page
+            // Navigate to the /game ROUTE, not the file directly
+            window.location.href = '/game';
         });
     }
 
@@ -1320,143 +2142,23 @@ document.addEventListener('DOMContentLoaded', () => {
         multiPlayerButton.addEventListener('mouseover', () => {
            // Optional: Show a tooltip explaining it's disabled
         });
+        // Make sure it stays disabled if needed
+        multiPlayerButton.disabled = true;
     }
 
     if (settingsButton) {
         settingsButton.addEventListener('click', () => {
             console.log("Navigating to Settings...");
-            window.location.href = 'settings.html'; // Navigate to the settings page
+             // Navigate to the /settings ROUTE
+            window.location.href = '/settings';
         });
     }
 });
 
---- FILE: tree.js ---
-import * as THREE from 'three';
-import * as Config from './config.js';
-import { scene } from './sceneSetup.js';
-// ++ Import gameState directly ++
-import { gameState } from './gameState.js';
-
-let trunkMaterial = null;
-let canopyMaterial = null;
-
-// Calculates derived dimensions based on LA and height in gameState
-// Pass state or read directly? Reading directly simplifies calls.
-export function calculateDimensions(/* state */) {
-    const state = gameState; // Use imported gameState
-    const safeLA = Math.max(0.0001, state.currentLA);
-    state.canopyWidth = Math.sqrt(safeLA);
-    state.canopyDepth = state.canopyWidth;
-    const trunkArea = safeLA * Config.k_TA_LA_RATIO;
-    state.trunkWidth = Math.sqrt(trunkArea);
-    state.trunkDepth = state.trunkWidth;
-}
-
-// Creates or recreates the player's tree mesh group
-export function createPlayerTree(/* state */) { // Reads directly from gameState module
-    const state = gameState; // Use imported gameState
-    if (state.treeMeshGroup) {
-        if (scene) scene.remove(state.treeMeshGroup);
-        disposeTreeMaterials();
-        state.treeMeshGroup = null;
-    }
-    // Calculate dimensions if needed (e.g., after state init)
-    if ((state.trunkWidth <= 0 || state.canopyWidth <= 0) && state.currentLA > 0) {
-         calculateDimensions(); // Uses imported gameState
-    }
-
-    // Read colors directly from gameState
-    trunkMaterial = new THREE.MeshStandardMaterial({ color: state.trunkColor });
-    canopyMaterial = new THREE.MeshStandardMaterial({ color: state.leafColor });
-
-    // Create geometries using gameState dimensions
-    const trunkGeometry = new THREE.BoxGeometry(state.trunkWidth || 0.1, state.trunkHeight || 0.1, state.trunkDepth || 0.1);
-    const canopyThickness = 0.1;
-    const canopyGeometry = new THREE.BoxGeometry(state.canopyWidth || 0.1, canopyThickness, state.canopyDepth || 0.1);
-    const trunkMesh = new THREE.Mesh(trunkGeometry, trunkMaterial);
-    trunkMesh.name = "trunk";
-    trunkMesh.position.y = state.trunkHeight / 2 + Config.ISLAND_LEVEL;
-    trunkMesh.castShadow = true;
-    trunkMesh.receiveShadow = true;
-    const canopyMesh = new THREE.Mesh(canopyGeometry, canopyMaterial);
-    canopyMesh.name = "canopy";
-    canopyMesh.position.y = state.trunkHeight + canopyThickness / 2 + Config.ISLAND_LEVEL;
-    canopyMesh.castShadow = true;
-    canopyMesh.receiveShadow = true;
-
-    state.treeMeshGroup = new THREE.Group();
-    state.treeMeshGroup.add(trunkMesh);
-    state.treeMeshGroup.add(canopyMesh);
-    state.treeMeshGroup.position.set(0, 0, 0);
-    if (scene) scene.add(state.treeMeshGroup);
-    else console.error("Scene not available in createPlayerTree");
-
-    updateCanopyVisuals(); // Uses imported gameState
-
-    console.log("Player tree created/recreated using saved colors.");
-}
-
-// Applies growth based on carbon investment
-// Pass state explicitly OR read from module? Reading is simpler here.
-export function growTree(carbonForGrowth) {
-    const state = gameState; // Use imported gameState
-    if (!state.treeMeshGroup || carbonForGrowth <= 0) return;
-
-    const currentTrunkVolume = state.trunkWidth * state.trunkDepth * state.trunkHeight;
-    const currentBiomassEstimate = Math.max(1, state.currentLA + currentTrunkVolume);
-    const biomassToAdd = carbonForGrowth / Config.GROWTH_COST_PER_LA;
-    const growthFactor = 1 + (biomassToAdd / currentBiomassEstimate);
-
-    state.currentLA *= growthFactor;
-    state.trunkHeight *= growthFactor;
-    calculateDimensions(); // Uses imported gameState
-
-    state.effectiveLA = state.currentLA * (1 - state.damagedLAPercentage);
-
-    const trunkMesh = state.treeMeshGroup.getObjectByName("trunk");
-    const canopyMesh = state.treeMeshGroup.getObjectByName("canopy");
-    if (trunkMesh) {
-        trunkMesh.geometry.dispose();
-        trunkMesh.geometry = new THREE.BoxGeometry(state.trunkWidth, state.trunkHeight, state.trunkDepth);
-        trunkMesh.position.y = state.trunkHeight / 2 + Config.ISLAND_LEVEL;
-    }
-    if (canopyMesh) {
-        canopyMesh.geometry.dispose();
-        const canopyThickness = 0.1;
-        canopyMesh.geometry = new THREE.BoxGeometry(state.canopyWidth, canopyThickness, state.canopyDepth);
-        canopyMesh.position.y = state.trunkHeight + canopyThickness / 2 + Config.ISLAND_LEVEL;
-    }
-}
-
-// Updates the canopy color based on damage percentage and base leaf color
-export function updateCanopyVisuals(/* state */) { // Reads directly from gameState
-    const state = gameState; // Use imported gameState
-    if (!canopyMaterial || !state.treeMeshGroup) return;
-    const canopyMesh = state.treeMeshGroup.getObjectByName("canopy");
-    if (!canopyMesh || !canopyMesh.visible) return;
-    const baseColor = new THREE.Color(state.leafColor);
-    const brown = new THREE.Color(0x8B4513);
-    const damageLerp = Math.max(0, Math.min(1, state.damagedLAPercentage));
-    canopyMaterial.color.lerpColors(baseColor, brown, damageLerp);
-}
-
-// Helper function to dispose of materials
-export function disposeTreeMaterials() {
-    if (trunkMaterial) { trunkMaterial.dispose(); trunkMaterial = null; }
-    if (canopyMaterial) { canopyMaterial.dispose(); canopyMaterial = null; }
-}
-
-// Sets the visibility of the canopy mesh
-// Pass state OR read from module? Reading avoids passing it everywhere.
-export function setCanopyVisibility(isVisible) {
-    const state = gameState; // Use imported gameState
-     if (state.treeMeshGroup) {
-        const canopyMesh = state.treeMeshGroup.getObjectByName("canopy");
-        if (canopyMesh) {
-            canopyMesh.visible = isVisible;
-        }
-    }
-}
+--- FILE: .gitignore ---
+dirgrab.txt
+server/node_modules
+package-lock.json
 
 --- FILE: game.html ---
 <!DOCTYPE html>
@@ -1552,156 +2254,118 @@ export function setCanopyVisibility(isVisible) {
             }
         }
     </script>
+
+    <!-- +++ ADD SOCKET.IO CLIENT LIBRARY +++ -->
+    <script src="/socket.io/socket.io.js"></script>
+
+    <!-- Your Game Code -->
     <script type="module" src="main.js"></script>
 </body>
 </html>
 
---- FILE: ui.js ---
-// UI Module: Handles DOM interactions, updates, and listeners
+--- FILE: ui/leaderboard.js ---
 
-import { gameState } from './gameState.js';
-import * as Config from './config.js';
-// Only need setCanopyVisibility from tree.js for game over
-import { setCanopyVisibility } from './tree.js';
-import { handleRestart } from './main.js';
-// No simulation imports needed now
 
-// DOM Element References (cached)
-let uiElements = {};
+--- FILE: ui/messageHandler.js ---
+// ui/messageHandler.js
+// Handles displaying and clearing messages in the UI message log.
 
-export function cacheDOMElements() {
-    uiElements = {
-        gameContainer: document.getElementById('game-container'), canvas: document.getElementById('game-canvas'),
-        dayCounterUI: document.getElementById('day-counter'), timeOfDayUI: document.getElementById('time-of-day'),
-        weatherStatusUI: document.getElementById('weather-status'), cycleTimerUI: document.getElementById('cycle-timer'),
-        messageLogUI: document.getElementById('message-log'), leaderboardListUI: document.getElementById('leaderboard-list'),
-        treeCountUI: document.getElementById('tree-count'), carbonBar: document.getElementById('carbon-bar'),
-        hydraulicBar: document.getElementById('hydraulic-bar'), carbonValueUI: document.getElementById('carbon-value'),
-        hydraulicValueUI: document.getElementById('hydraulic-value'), seedCounterUI: document.getElementById('seed-counter'),
-        stomataSlider: document.getElementById('stomata-slider'), stomataValueUI: document.getElementById('stomata-value'),
-        savingsSlider: document.getElementById('savings-slider'), savingsPercentageUI: document.getElementById('savings-percentage'),
-        growthRatioSlider: document.getElementById('growth-ratio-slider'), growthRatioPercentageUI: document.getElementById('growth-ratio-percentage'),
-        gameOverModal: document.getElementById('game-over-modal'), gameOverReasonUI: document.getElementById('game-over-reason'),
-        finalDayUI: document.getElementById('final-day'), finalSeedsUI: document.getElementById('final-seeds'),
-        restartButton: document.getElementById('restart-button'),
-    };
-     console.log("Checking DOM elements...");
-     for (const key in uiElements) { if (!uiElements[key]) console.warn(`UI element not found: ${key}`); }
-     console.log("DOM elements cached.");
+// Import the cached UI elements
+import { uiElements } from './elements.js';
+
+/**
+ * Shows a message in the message log area.
+ * @param {string} text - The message text to display.
+ * @param {string} [type='info'] - The type of message ('info', 'warning', 'error') for styling.
+ */
+export function showMessage(text, type = 'info') {
+     if (uiElements.messageLogUI) {
+        uiElements.messageLogUI.textContent = text;
+        // Apply class based on type for CSS styling
+        uiElements.messageLogUI.className = `message ${type}`;
+     } else {
+         // Fallback console log if UI element isn't found
+         console.warn(`Message log UI element not found. Message (${type}): ${text}`);
+     }
 }
 
+/**
+ * Clears the message log area.
+ */
+export function clearMessage() {
+    if (uiElements.messageLogUI) {
+        uiElements.messageLogUI.textContent = '';
+        // Reset class to default
+        uiElements.messageLogUI.className = 'message';
+    }
+}
 
-// Event Listener Setup
+--- FILE: ui/setupListeners.js ---
+// ui/setupListeners.js
+// Sets up all necessary event listeners for UI elements.
+
+// Import the cached UI element references
+import { uiElements } from './elements.js';
+
+// Import handler functions from other modules
+import { handleStomataChange, handleAllocationSliderChange } from './controlsHandlers.js'; // Adjust path if needed
+// Game Over modal is handled separately, but restart is triggered from main
+import { handleRestart } from '../main.js'; // Adjust path to go up one level
+
+/**
+ * Attaches event listeners to the interactive UI elements.
+ * Should be called once after elements are cached.
+ */
 export function setupUIListeners() {
-    if (!uiElements.stomataSlider || !uiElements.restartButton || !uiElements.savingsSlider || !uiElements.growthRatioSlider) {
-        console.error("Cannot set up UI listeners - essential controls missing."); return;
+    console.log("UI: Setting up listeners...");
+
+    // Check essential elements exist before adding listeners
+    const essentialControls = [
+        uiElements.stomataSlider,
+        uiElements.savingsSlider,
+        uiElements.growthRatioSlider,
+        uiElements.restartButton
+    ];
+    if (essentialControls.some(el => !el)) {
+        console.error("Cannot set up UI listeners - one or more essential controls missing!");
+        // Find which one is missing
+        if (!uiElements.stomataSlider) console.error("- Stomata slider missing");
+        if (!uiElements.savingsSlider) console.error("- Savings slider missing");
+        if (!uiElements.growthRatioSlider) console.error("- Growth ratio slider missing");
+        if (!uiElements.restartButton) console.error("- Restart button missing");
+        return;
     }
+
+    // Control Sliders
     uiElements.stomataSlider.addEventListener('input', handleStomataChange);
-    // Ensure restart button exists before adding listener
-    if (uiElements.restartButton) {
-        uiElements.restartButton.addEventListener('click', handleRestart); // Calls handler in main.js
-    } else {
-         console.error("Restart button not found!");
-    }
     uiElements.savingsSlider.addEventListener('input', handleAllocationSliderChange);
     uiElements.growthRatioSlider.addEventListener('input', handleAllocationSliderChange);
+
+    // Restart Button (on Game Over Modal)
+    uiElements.restartButton.addEventListener('click', handleRestart);
+
+    // Add listeners for any other interactive elements here (e.g., leaderboard expand)
+
+    console.log("UI: Listeners set up.");
 }
 
-// Event Handlers
-function handleStomataChange(e) {
-    gameState.stomatalConductance = parseFloat(e.target.value);
-    if (uiElements.stomataValueUI) uiElements.stomataValueUI.textContent = `${Math.round(gameState.stomatalConductance * 100)}%`;
-}
-
-function handleAllocationSliderChange() {
-    if (!uiElements.savingsSlider || !uiElements.growthRatioSlider || !uiElements.savingsPercentageUI || !uiElements.growthRatioPercentageUI) return;
-    const savingsPercent = parseInt(uiElements.savingsSlider.value) || 0;
-    const growthRatioPercent = parseInt(uiElements.growthRatioSlider.value) || 0;
-    uiElements.savingsPercentageUI.textContent = `${savingsPercent}%`;
-    const seedRatioPercent = 100 - growthRatioPercent;
-    uiElements.growthRatioPercentageUI.textContent = `${growthRatioPercent}%/${seedRatioPercent}%`;
-    gameState.lastSavingsPercent = savingsPercent;
-    gameState.lastGrowthRatioPercent = growthRatioPercent;
-}
-
-
-// --- UI Update Functions ---
-export function updateUI() {
-    if (!gameState) return;
-
-    // Update Status Bars (Bottom Left)
-    if (uiElements.carbonBar) uiElements.carbonBar.style.width = `${(gameState.carbonStorage / Config.MAX_CARBON) * 100}%`;
-    if (uiElements.hydraulicBar) uiElements.hydraulicBar.style.width = `${(gameState.hydraulicSafety / Config.MAX_HYDRAULIC) * 100}%`;
-    if (uiElements.carbonValueUI) uiElements.carbonValueUI.textContent = Math.floor(gameState.carbonStorage);
-    if (uiElements.hydraulicValueUI) uiElements.hydraulicValueUI.textContent = Math.floor(gameState.hydraulicSafety);
-    if (uiElements.seedCounterUI) uiElements.seedCounterUI.textContent = gameState.seedCount;
-
-    // Update Info (Top Left)
-    if (uiElements.dayCounterUI) uiElements.dayCounterUI.textContent = gameState.day;
-    if (uiElements.timeOfDayUI) uiElements.timeOfDayUI.textContent = gameState.timeOfDay.charAt(0).toUpperCase() + gameState.timeOfDay.slice(1);
-    // Update Cycle Timer - showing time left until next allocation/day increment
-    const allocationCycleLength = Config.DAY_DURATION_SECONDS;
-    const timeSinceLastCycleStart = gameState.timeInCycle % allocationCycleLength;
-    const timeLeftInCycle = Math.max(0, allocationCycleLength - timeSinceLastCycleStart);
-    if (uiElements.cycleTimerUI) uiElements.cycleTimerUI.textContent = Math.floor(timeLeftInCycle);
-    if (uiElements.weatherStatusUI) uiElements.weatherStatusUI.textContent = gameState.droughtFactor > 1.1 ? "Dry" : "Clear";
-
-
-    // Update Controls (Bottom Bar) - Ensure sliders reflect gameState
-    if (uiElements.stomataSlider && parseFloat(uiElements.stomataSlider.value) !== gameState.stomatalConductance) {
-        uiElements.stomataSlider.value = gameState.stomatalConductance;
-    }
-    if (uiElements.stomataValueUI) uiElements.stomataValueUI.textContent = `${Math.round(gameState.stomatalConductance * 100)}%`;
-    if (uiElements.savingsSlider && parseInt(uiElements.savingsSlider.value) !== gameState.lastSavingsPercent) {
-         uiElements.savingsSlider.value = gameState.lastSavingsPercent;
-    }
-     if (uiElements.savingsPercentageUI) uiElements.savingsPercentageUI.textContent = `${gameState.lastSavingsPercent}%`;
-    if (uiElements.growthRatioSlider && parseInt(uiElements.growthRatioSlider.value) !== gameState.lastGrowthRatioPercent) {
-        uiElements.growthRatioSlider.value = gameState.lastGrowthRatioPercent;
-    }
-     if (uiElements.growthRatioPercentageUI) {
-        const seedRatioPercent = 100 - gameState.lastGrowthRatioPercent;
-        uiElements.growthRatioPercentageUI.textContent = `${gameState.lastGrowthRatioPercent}%/${seedRatioPercent}%`;
-     }
-
-    // Update Leaderboard (Top Right - Basic for SP)
-     if (uiElements.leaderboardListUI) { uiElements.leaderboardListUI.innerHTML = `<li>${gameState.playerName || 'Player'}: ${gameState.seedCount} Seeds</li>`; }
-     if (uiElements.treeCountUI) { uiElements.treeCountUI.textContent = gameState.gameOver ? 0 : 1; }
-}
-
-export function showMessage(text, type = 'info') {
-     if (uiElements.messageLogUI) { uiElements.messageLogUI.textContent = text; uiElements.messageLogUI.className = `message ${type}`; }
-     else { console.warn("Message log UI element not found:", text); }
-}
-
-export function clearMessage() {
-    if (uiElements.messageLogUI) { uiElements.messageLogUI.textContent = ''; uiElements.messageLogUI.className = 'message'; }
-}
-
-
-// --- Game Over UI ---
-export function showGameOverUI() {
-    console.log("UI: showGameOverUI called.");
-    if (!uiElements.gameOverModal) { console.error("UI ERROR: gameOverModal element not found!"); return; }
-    if (!uiElements.gameOverReasonUI) { console.error("UI ERROR: gameOverReasonUI element not found!"); }
-    console.log(`UI: Attempting to display reason: "${gameState.gameOverReason}"`);
-    if(uiElements.gameOverReasonUI) { uiElements.gameOverReasonUI.textContent = gameState.gameOverReason; console.log("UI: gameOverReasonUI textContent set."); }
-    else { console.log("UI: gameOverReasonUI element was missing."); }
-    if(uiElements.finalDayUI) uiElements.finalDayUI.textContent = gameState.day;
-    if(uiElements.finalSeedsUI) uiElements.finalSeedsUI.textContent = gameState.seedCount;
-    setCanopyVisibility(false); // Assumes reads gameState directly
-    uiElements.gameOverModal.classList.remove('hidden');
-    console.log("UI: Game over modal made visible.");
-}
-
-// ++ NEW Exported function to hide the modal ++
-export function hideGameOverModal() {
-    if (uiElements.gameOverModal) {
-        uiElements.gameOverModal.classList.add('hidden');
-        console.log("UI: Game over modal hidden.");
-    } else {
-        console.warn("UI: Tried to hide game over modal, but element not found.");
-    }
+--- FILE: server/package.json ---
+{
+  "name": "server",
+  "version": "1.0.0",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "express": "^5.1.0",
+    "socket.io": "^4.8.1"
+  }
 }
 
 --- FILE: ui/controlsHandlers.js ---
@@ -1763,272 +2427,562 @@ export function handleAllocationSliderChange() {
     // as the allocation happens periodically based on these stored values.
 }
 
---- FILE: index.html ---
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Island Canopy Sim - Welcome</title>
-    <link rel="stylesheet" href="style.css"> <!-- Shared style or create landing.css -->
-    <style>
-        /* Basic Landing Page Specific Styles */
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background-color: #2b412b; /* Foresty green background */
-            color: #f0f0f0;
-            font-family: sans-serif;
-            text-align: center;
+--- FILE: ui/update.js ---
+// ui/update.js
+// Contains the main updateUI function to refresh dynamic UI elements.
+
+// Import gameState and helper
+import { gameState, getMyPlayerState } from '../gameState.js';
+import * as Config from '../config.js'; // Keep for MAX_CARBON etc.
+import { uiElements } from './elements.js'; // Needs element references
+
+/**
+ * Updates all relevant UI elements based on the current gameState
+ * (which is populated by server updates).
+ * Called each frame in the main game loop.
+ */
+export function updateUI() {
+    // Wait until initial state is received and elements are ready
+    if (!gameState.initialStateReceived || !uiElements.carbonBar || !uiElements.dayCounterUI) {
+        // console.warn("updateUI called before initial state or UI ready.");
+        return;
+    }
+
+    // Get the state specific to the local player
+    const myState = getMyPlayerState(); // Returns player state object or null
+
+    // --- Update Status Bars (Bottom Left) ---
+    // Show default/empty state if local player data isn't available yet
+    const carbon = myState?.carbonStorage ?? 0;
+    const maxCarbon = Config.MAX_CARBON; // Still use client config for max? Or send from server? Config is safer.
+    const hydraulics = myState?.hydraulicSafety ?? 0;
+    const maxHydraulics = myState?.maxHydraulic ?? Config.BASE_HYDRAULIC; // Use player's max or base if no state
+    const seeds = myState?.seedCount ?? 0;
+
+    if (uiElements.carbonBar) {
+        uiElements.carbonBar.style.width = `${(carbon / maxCarbon) * 100}%`;
+    }
+    if (uiElements.hydraulicBar) {
+        uiElements.hydraulicBar.style.width = maxHydraulics > 0 ? `${(hydraulics / maxHydraulics) * 100}%` : '0%';
+    }
+    if (uiElements.carbonValueUI) {
+        uiElements.carbonValueUI.textContent = Math.floor(carbon);
+    }
+    if (uiElements.hydraulicValueUI) {
+        uiElements.hydraulicValueUI.textContent = Math.floor(hydraulics);
+    }
+    if (uiElements.seedCounterUI) {
+        uiElements.seedCounterUI.textContent = seeds;
+    }
+
+    // --- Update Info (Top Left) ---
+    if (uiElements.dayCounterUI) {
+        uiElements.dayCounterUI.textContent = gameState.day;
+    }
+    if (uiElements.timeOfDayUI) {
+        let timeText = '';
+        if(gameState.gamePhase === 'lobby' || gameState.gamePhase === 'loading') {
+            timeText = gameState.gamePhase.charAt(0).toUpperCase() + gameState.gamePhase.slice(1);
+        } else if (gameState.isNight) {
+            timeText = 'Night';
+        } else if (gameState.currentPeriodIndex >= 0) {
+            timeText = `Day Period ${gameState.currentPeriodIndex + 1}`;
+        } else {
+            timeText = 'Starting...';
         }
-        .landing-container {
-            background-color: rgba(0, 0, 0, 0.5);
-            padding: 40px;
-            border-radius: 15px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        uiElements.timeOfDayUI.textContent = timeText;
+    }
+    if (uiElements.cycleTimerUI) {
+         // Calculate time left based on server's timeInCycle
+         let timeLeft = 0;
+         if (gameState.isNight) {
+             const timeIntoNight = gameState.timeInCycle - Config.DAY_TOTAL_DURATION;
+             timeLeft = Config.NIGHT_DURATION - timeIntoNight;
+         } else if (gameState.currentPeriodIndex >= 0) {
+             const timeIntoPeriod = gameState.timeInCycle - (gameState.currentPeriodIndex * Config.PERIOD_DURATION);
+             timeLeft = Config.PERIOD_DURATION - timeIntoPeriod;
+         } else {
+             timeLeft = Config.PERIOD_DURATION - gameState.timeInCycle; // Time left in first period (or before start)
+         }
+         uiElements.cycleTimerUI.textContent = gameState.gamePhase === 'playing' ? Math.max(0, Math.floor(timeLeft)) : '--'; // Only show timer when playing
+    }
+
+    // Update Weather Status UI (use global server state)
+    if (uiElements.weatherStatusUI) {
+        let weatherText = '';
+        if(gameState.gamePhase === 'lobby' || gameState.gamePhase === 'loading') {
+             weatherText = '--';
+        } else if (gameState.currentPeriodIndex === -1 && !gameState.isNight && gameState.gamePhase !== 'playing') {
+            weatherText = 'Initializing...';
+        } else {
+            if (gameState.isNight) {
+                weatherText = 'Night';
+            } else {
+                // Determine light condition text based on server multiplier
+                 weatherText = (gameState.currentLightMultiplier === Config.LIGHT_MULT_SUNNY) ? 'Sunny' : 'Cloudy';
+            }
+            if (gameState.isRaining) {
+                weatherText += ', Raining';
+            }
+            // Add drought status based on server factor
+            if (gameState.currentDroughtFactor > Config.DROUGHT_MULT_BASE + Config.DROUGHT_VARIATION * 0.6) {
+                weatherText += ' (Dry)';
+            } else if (gameState.currentDroughtFactor < Config.DROUGHT_MULT_BASE - Config.DROUGHT_VARIATION * 0.6) {
+                weatherText += ' (Wet)';
+            }
         }
-        h1 {
-            color: #90ee90; /* Light green */
-            margin-bottom: 30px;
-            font-size: 2.5em;
+        uiElements.weatherStatusUI.textContent = weatherText;
+    }
+
+    // --- Update Controls (Bottom Bar) ---
+    // Controls should reflect the player's *intended* state, which is sent to server.
+    // For now, keep updating them based on local interaction, handlers will send to server.
+    // We might want server to confirm the state later if needed.
+    // Slider values are handled by event listeners + controlsHandlers.js now
+    // We only need to update the TEXT displays if they aren't updated by handlers
+    const stomataValue = myState?.stomatalConductance ?? 0.5; // Default if no state
+    const savingsValue = myState?.lastSavingsPercent ?? 50;
+    const growthRatioValue = myState?.lastGrowthRatioPercent ?? 50;
+
+    if (uiElements.stomataValueUI) {
+         // Ensure text matches the actual state value (might differ slightly from slider during drag)
+         // uiElements.stomataValueUI.textContent = `${Math.round(stomataValue * 100)}%`;
+         // Let the input handler manage this text for responsiveness
+    }
+    if (uiElements.savingsPercentageUI) {
+         // uiElements.savingsPercentageUI.textContent = `${savingsValue}%`;
+         // Let the input handler manage this text
+    }
+    if (uiElements.growthRatioPercentageUI) {
+         // const seedRatioPercent = 100 - growthRatioValue;
+         // uiElements.growthRatioPercentageUI.textContent = `${growthRatioValue}%/${seedRatioPercent}%`;
+          // Let the input handler manage this text
+     }
+
+     // Hide controls if spectator or game over?
+     if (uiElements.controlPanelRight) { // Assuming control-panel-right is the container
+        const shouldShowControls = myState && myState.isAlive && !gameState.isSpectator && !gameState.gameOver;
+        uiElements.controlPanelRight.style.display = shouldShowControls ? 'flex' : 'none';
+     }
+
+
+    // --- Update Leaderboard (Top Right) ---
+    if (uiElements.leaderboardListUI) {
+        let leaderboardHTML = '';
+        // Sort players by seed count (descending)
+        const sortedPlayerIds = Object.keys(gameState.players).sort((a, b) => {
+            const playerA = gameState.players[a];
+            const playerB = gameState.players[b];
+            return (playerB?.seedCount ?? 0) - (playerA?.seedCount ?? 0);
+        });
+
+        sortedPlayerIds.forEach(playerId => {
+            const player = gameState.players[playerId];
+            if (player) {
+                const isMe = playerId === gameState.myId;
+                const status = player.isAlive ? '' : ' (Dead)';
+                const name = player.playerName || `Player ${playerId.substring(0,4)}`;
+                leaderboardHTML += `<li${isMe ? ' style="font-weight: bold;"' : ''}>${name}${status}: ${player.seedCount} Seeds</li>`;
+            }
+        });
+        uiElements.leaderboardListUI.innerHTML = leaderboardHTML || '<li>Waiting for players...</li>';
+    }
+    if (uiElements.treeCountUI) {
+        // Count alive players
+        const aliveCount = Object.values(gameState.players).filter(p => p.isAlive).length;
+        uiElements.treeCountUI.textContent = aliveCount;
+    }
+}
+
+--- FILE: tree.js ---
+// tree.js
+import * as THREE from 'three';
+import * as Config from './config.js'; // Still need some constants like ratios
+import { scene } from './sceneSetup.js';
+import { gameState } from './gameState.js'; // Need access to the playerTrees map
+
+// Module-level variables for materials (shared) - Now need arrays or Maps if colors differ per player
+// Let's simplify for now: Assume all trees use the same initial material colors,
+// but we'll need to handle custom colors later, likely by creating materials per tree.
+let sharedTrunkMaterial = null;
+let sharedCanopyMaterial = null;
+
+function ensureSharedMaterials() {
+    // Use default colors for now, customize later
+    const leafColor = Config.DEFAULT_LEAF_COLOR;
+    const trunkColor = Config.DEFAULT_TRUNK_COLOR;
+
+    if (!sharedTrunkMaterial) {
+        sharedTrunkMaterial = new THREE.MeshStandardMaterial({ color: trunkColor });
+    } else {
+        sharedTrunkMaterial.color.set(trunkColor); // Ensure color is up-to-date if default changes?
+    }
+    if (!sharedCanopyMaterial) {
+        sharedCanopyMaterial = new THREE.MeshStandardMaterial({ color: leafColor });
+    } else {
+        sharedCanopyMaterial.color.set(leafColor);
+    }
+}
+
+// Helper function to shuffle an array (Fisher-Yates algorithm) - Keep for canopy tiles
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]]; // Swap elements
+    }
+}
+
+// Calculates derived dimensions based on SERVER data for a SPECIFIC player
+// Returns an object, doesn't modify global state
+function calculateDimensions(playerData) {
+    const potentialLA = Math.max(0.0001, playerData.currentLA);
+    const canopyWidth = Math.sqrt(potentialLA);
+    const trunkArea = potentialLA * Config.k_TA_LA_RATIO;
+    const trunkWidth = Math.sqrt(trunkArea);
+
+    return {
+        canopyWidth: canopyWidth,
+        canopyDepth: canopyWidth, // Assuming square canopy base
+        trunkWidth: trunkWidth,
+        trunkDepth: trunkWidth, // Assuming square trunk base
+        trunkHeight: playerData.trunkHeight, // Use height directly from server data
+    };
+}
+
+/**
+ * Creates a new tree mesh group for a player or updates an existing one.
+ * @param {string} playerId - The ID of the player.
+ * @param {object} playerData - The state data for this player from the server.
+ */
+export function createOrUpdateTree(playerId, playerData) {
+    ensureSharedMaterials(); // Make sure materials exist
+
+    let treeMeshGroup = gameState.playerTrees.get(playerId);
+    const dimensions = calculateDimensions(playerData); // Calculate target dimensions
+
+    if (!treeMeshGroup) {
+        // --- Create New Tree ---
+        console.log(`TREE: Creating new tree for player ${playerId}`);
+        treeMeshGroup = new THREE.Group();
+        treeMeshGroup.name = `playerTree_${playerId}`;
+
+        // --- Create Trunk ---
+        // Use calculated dimensions, provide small fallback for safety
+        const trunkGeometry = new THREE.BoxGeometry(dimensions.trunkWidth || 0.1, dimensions.trunkHeight || 0.1, dimensions.trunkDepth || 0.1);
+        const trunkMesh = new THREE.Mesh(trunkGeometry, sharedTrunkMaterial); // Use shared material for now
+        trunkMesh.name = "trunk";
+        trunkMesh.position.y = (dimensions.trunkHeight / 2); // Position relative to group base
+        trunkMesh.castShadow = true;
+        trunkMesh.receiveShadow = true;
+        treeMeshGroup.add(trunkMesh);
+
+        // --- Create Tiled Canopy ---
+        const canopyGroup = new THREE.Group();
+        canopyGroup.name = "canopyGroup";
+        const tiles = [];
+        const gridSize = Config.CANOPY_TILE_GRID_SIZE; // Use constant for grid density
+        const totalTiles = gridSize * gridSize;
+        // Calculate tile size based on *initial* canopy dimensions (when LA was INITIAL_LEAF_AREA)
+        // We need a consistent base size for tiles before scaling the group
+        const initialDimensionsForTileSize = calculateDimensions({ currentLA: Config.INITIAL_LEAF_AREA, trunkHeight: Config.INITIAL_TRUNK_HEIGHT });
+        const tileWidth = initialDimensionsForTileSize.canopyWidth / gridSize;
+        const tileDepth = initialDimensionsForTileSize.canopyDepth / gridSize;
+        const tileThickness = Config.CANOPY_TILE_THICKNESS;
+
+        const tileGeometry = new THREE.BoxGeometry(tileWidth, tileThickness, tileDepth);
+
+        for (let i = 0; i < gridSize; i++) {
+            for (let j = 0; j < gridSize; j++) {
+                // Use shared canopy material for now
+                const tileMesh = new THREE.Mesh(tileGeometry, sharedCanopyMaterial);
+                const xPos = (i - (gridSize - 1) / 2) * tileWidth;
+                const zPos = (j - (gridSize - 1) / 2) * tileDepth;
+                tileMesh.position.set(xPos, 0, zPos); // Position relative to canopyGroup center
+                tileMesh.castShadow = true;
+                tileMesh.receiveShadow = true;
+                tileMesh.name = `canopyTile_${i}_${j}`;
+                canopyGroup.add(tileMesh);
+                tiles.push(tileMesh);
+            }
         }
-        .button-group {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            margin-top: 20px;
+
+        shuffleArray(tiles); // Shuffle for random dieback pattern
+        canopyGroup.userData.tiles = tiles;
+        // Store the width used for tile creation to calculate scale factor later
+        canopyGroup.userData.initialWidth = initialDimensionsForTileSize.canopyWidth;
+        treeMeshGroup.add(canopyGroup);
+
+        // Add to scene and map
+        // Position the entire group at the player's spawn point (or current position from server later)
+        // For now, use a temporary position - this needs spawnPoint data!
+        const spawnPos = playerData.spawnPoint || { x: Math.random() * 20 - 10, y: Config.ISLAND_LEVEL, z: Math.random() * 20 - 10 }; // Use server spawnPoint when available
+        treeMeshGroup.position.set(spawnPos.x, spawnPos.y, spawnPos.z); // Set base position
+
+        if (scene) {
+            scene.add(treeMeshGroup);
+        } else {
+            console.error("Scene not available in createOrUpdateTree");
         }
-        button {
-            padding: 12px 25px;
-            font-size: 1.1em;
-            cursor: pointer;
-            border: none;
-            border-radius: 5px;
-            background-color: #556b2f; /* Dark olive green */
-            color: #f0f0f0;
-            transition: background-color 0.3s ease;
+        gameState.playerTrees.set(playerId, treeMeshGroup);
+
+        // Apply initial geometry/tiles update after creation
+        updateTreeGeometry(treeMeshGroup, playerData, dimensions);
+        updateCanopyTiles(treeMeshGroup, playerData); // Pass player data for damage %
+
+    } else {
+        // --- Update Existing Tree ---
+        // console.log(`TREE: Updating tree for player ${playerId}`); // Reduce log spam
+        updateTreeGeometry(treeMeshGroup, playerData, dimensions);
+        updateCanopyTiles(treeMeshGroup, playerData);
+    }
+
+     // Set visibility based on server 'isAlive' state
+     treeMeshGroup.visible = playerData.isAlive;
+}
+
+
+// Updates the geometry of the trunk and repositions/scales the canopy group for a specific tree
+function updateTreeGeometry(treeMeshGroup, playerData, dimensions) {
+    if (!treeMeshGroup) return;
+
+    const trunkMesh = treeMeshGroup.getObjectByName("trunk");
+    const canopyGroup = treeMeshGroup.getObjectByName("canopyGroup");
+
+    // Update Trunk Geometry & Position (relative to group base)
+    if (trunkMesh && trunkMesh.geometry) {
+        // Check if dimensions actually changed to avoid unnecessary geometry creation
+        const currentGeomParams = trunkMesh.geometry.parameters;
+        if (Math.abs(currentGeomParams.width - dimensions.trunkWidth) > 0.01 ||
+            Math.abs(currentGeomParams.height - dimensions.trunkHeight) > 0.01 ||
+            Math.abs(currentGeomParams.depth - dimensions.trunkDepth) > 0.01)
+        {
+            trunkMesh.geometry.dispose();
+            trunkMesh.geometry = new THREE.BoxGeometry(dimensions.trunkWidth, dimensions.trunkHeight, dimensions.trunkDepth);
+            trunkMesh.position.y = dimensions.trunkHeight / 2; // Center vertically relative to base
+        } else {
+             // Only update position if height changed slightly but geometry didn't refresh
+             trunkMesh.position.y = dimensions.trunkHeight / 2;
         }
-        button:hover:not(:disabled) {
-            background-color: #6b8e23; /* Olive drab */
+    }
+
+    // Reposition and Scale Canopy Group
+    if (canopyGroup) {
+        // Reposition based on new trunk height (relative to group base)
+        const tileThickness = Config.CANOPY_TILE_THICKNESS; // Use constant
+        canopyGroup.position.y = dimensions.trunkHeight + (tileThickness / 2);
+
+        // Calculate and apply scale relative to the initial tile geometry size
+        const initialWidth = canopyGroup.userData.initialWidth || 1; // Get width used at creation
+        const currentWidth = dimensions.canopyWidth;
+        const scaleFactor = currentWidth > 0.01 ? currentWidth / initialWidth : 0.01; // Avoid zero/negative scale
+
+        // Check if scale changed significantly
+        if (Math.abs(canopyGroup.scale.x - scaleFactor) > 0.001) {
+             canopyGroup.scale.set(scaleFactor, 1, scaleFactor); // Uniform XZ scale
         }
-        button:disabled {
-            background-color: #4a4a4a;
-            color: #888;
-            cursor: not-allowed;
+    }
+}
+
+
+// Updates canopy tile visibility and color based on damage percentage for a specific tree
+function updateCanopyTiles(treeMeshGroup, playerData) {
+    if (!treeMeshGroup || !sharedCanopyMaterial) return; // Check shared material
+
+    const canopyGroup = treeMeshGroup.getObjectByName("canopyGroup");
+    if (!canopyGroup || !canopyGroup.userData.tiles) return;
+
+    const tiles = canopyGroup.userData.tiles;
+    const totalTiles = tiles.length;
+    if (totalTiles === 0) return;
+
+    const damagePercent = playerData.damagedLAPercentage || 0;
+    const hiddenTilesCount = Math.floor(totalTiles * damagePercent);
+
+    // Update tile visibility
+    let visibilityChanged = false;
+    for (let i = 0; i < totalTiles; i++) {
+        const shouldBeVisible = (i >= hiddenTilesCount);
+        if (tiles[i].visible !== shouldBeVisible) {
+             tiles[i].visible = shouldBeVisible;
+             visibilityChanged = true;
         }
-    </style>
-</head>
-<body>
-    <div class="landing-container">
-        <h1>Forest Royale</h1>
-        <p>Make Good Decisions!</p>
+    }
+    // if(visibilityChanged) console.log(`Updated canopy tiles for ${playerData.id}: Hidden=${hiddenTilesCount}/${totalTiles}`);
 
-        <div class="button-group">
-            <button id="start-single-player">Single Player</button>
-            <button id="start-multi-player" disabled>Multiplayer (Coming Soon)</button>
-            <button id="open-settings">Settings</button>
-        </div>
-    </div>
+    // Update color tint of the shared material based on damage
+    // !!! PROBLEM: This tints ALL trees using the shared material !!!
+    // TODO: Implement per-tree material cloning or shader uniforms for individual color tinting.
+    // For now, we'll skip the tinting to avoid affecting all trees.
+    const baseColor = new THREE.Color(Config.DEFAULT_LEAF_COLOR); // Use default for now
+    // const brown = new THREE.Color(0x8B4513);
+    // const damageLerp = Math.max(0, Math.min(1, damagePercent));
+    // sharedCanopyMaterial.color.lerpColors(baseColor, brown, damageLerp); // <-- Incorrect for shared material
+    sharedCanopyMaterial.color.set(baseColor); // Just set to base color for now
 
-    <script src="index.js"></script>
-</body>
-</html>
+    // To handle individual colors/tints later:
+    // 1. When creating a tree, clone the shared material: tileMesh.material = sharedCanopyMaterial.clone();
+    // 2. Store this cloned material reference (e.g., canopyGroup.userData.material = tileMesh.material)
+    // 3. In this function, get the specific material from userData and tint it.
+    // 4. Need proper disposal when tree is removed.
+}
 
---- FILE: ui/leaderboard.js ---
+// Removes the tree mesh from the scene and the map
+export function removeTree(playerId) {
+    const treeMeshGroup = gameState.playerTrees.get(playerId);
+    if (treeMeshGroup) {
+        console.log(`TREE: Removing tree for player ${playerId}`);
+        disposeTreeGroup(treeMeshGroup); // Dispose geometry first
+        if (scene) {
+            scene.remove(treeMeshGroup);
+        }
+        gameState.playerTrees.delete(playerId);
+    }
+}
+
+// Sets the visibility of a specific player's tree canopy group (e.g., for game over)
+// Note: createOrUpdateTree now sets visibility based on isAlive, so this might be less needed.
+export function setCanopyVisibility(playerId, isVisible) {
+    const treeMeshGroup = gameState.playerTrees.get(playerId);
+     if (treeMeshGroup) {
+        const canopyGroup = treeMeshGroup.getObjectByName("canopyGroup");
+        if (canopyGroup) {
+            canopyGroup.visible = isVisible;
+             // console.log(`Set canopy group visibility for ${playerId} to: ${isVisible}`);
+        }
+    }
+}
+
+// Helper function to dispose of materials (only shared ones for now)
+export function disposeSharedTreeMaterials() {
+    if (sharedTrunkMaterial) {
+        sharedTrunkMaterial.dispose();
+        sharedTrunkMaterial = null;
+    }
+    if (sharedCanopyMaterial) {
+        sharedCanopyMaterial.dispose();
+        sharedCanopyMaterial = null;
+    }
+}
+
+// Helper function to dispose geometries AND materials within a specific tree group
+function disposeTreeGroup(group) {
+    if (!group) return;
+    group.traverse((object) => {
+        if (object.isMesh) {
+            if (object.geometry) {
+                object.geometry.dispose();
+            }
+            // If we implement per-tree materials later, dispose them here:
+            // if (object.material) {
+            //     if (Array.isArray(object.material)) {
+            //         object.material.forEach(mat => mat.dispose());
+            //     } else {
+            //         object.material.dispose();
+            //     }
+            // }
+        }
+    });
+     // console.log(`Disposed geometries in tree group ${group.name}.`);
+}
+
+// Dispose all tracked tree groups and shared materials (e.g., on full restart/cleanup)
+export function disposeAllTrees() {
+    gameState.playerTrees.forEach(treeGroup => {
+         disposeTreeGroup(treeGroup);
+         if(scene) scene.remove(treeGroup);
+    });
+    gameState.playerTrees.clear();
+    disposeSharedTreeMaterials();
+    console.log("Disposed all player trees and shared materials.");
+}
+
+--- FILE: settings.js ---
+// settings.js (in project root)
+
+document.addEventListener('DOMContentLoaded', () => {
+    const playerNameInput = document.getElementById('player-name');
+    const leafColorInput = document.getElementById('leaf-color');
+    const trunkColorInput = document.getElementById('trunk-color');
+    const saveButton = document.getElementById('save-settings');
+
+    // --- Load existing settings from localStorage ---
+    function loadSettings() {
+        const storedName = localStorage.getItem('playerName');
+        const storedLeafColor = localStorage.getItem('leafColor');
+        const storedTrunkColor = localStorage.getItem('trunkColor');
+
+        if (playerNameInput) {
+            playerNameInput.value = storedName || 'Treebard'; // Use default if not set
+        }
+        if (leafColorInput) {
+            leafColorInput.value = storedLeafColor || '#228B22'; // Default green
+        }
+        if (trunkColorInput) {
+            trunkColorInput.value = storedTrunkColor || '#8B4513'; // Default brown
+        }
+        console.log('Settings loaded from localStorage');
+    }
+
+    // --- Save current settings to localStorage ---
+    function saveSettings() {
+        if (playerNameInput) {
+            localStorage.setItem('playerName', playerNameInput.value || 'Treebard');
+        }
+        if (leafColorInput) {
+            localStorage.setItem('leafColor', leafColorInput.value);
+        }
+        if (trunkColorInput) {
+            localStorage.setItem('trunkColor', trunkColorInput.value);
+        }
+        console.log('Settings saved to localStorage');
+    }
+
+    // --- Event Listener for Save Button ---
+    if (saveButton) {
+        saveButton.addEventListener('click', () => {
+            saveSettings();
+            // Navigate back to the root landing page route
+            window.location.href = '/';
+        });
+    }
+
+    // --- Initial Load ---
+    loadSettings();
+});
+
+--- FILE: config.js ---
+// config.js (Project Root - Client-Side Config)
+
+// --- UI & Display Constants ---
+export const MAX_CARBON = 200; // Used for UI bar calculation
+export const BASE_HYDRAULIC = 50; // Fallback for UI bar if player state not ready
+
+// --- Rendering & Visual Defaults ---
+export const INITIAL_TRUNK_HEIGHT = 2; // Used as fallback for camera target
+export const ISLAND_RADIUS = 50; // <<-- ADD THIS (Needed for water plane size)
+export const ISLAND_LEVEL = 0.1; // Needed for positioning trees? Check tree.js usage.
+export const DEFAULT_LEAF_COLOR = '#228B22'; // Forest Green - Used if server doesn't send color? Or for material fallback.
+export const DEFAULT_TRUNK_COLOR = '#8B4513'; // Saddle Brown - Used if server doesn't send color? Or for material fallback.
+
+// --- Canopy Tile Configuration (Client needs for rendering) ---
+export const CANOPY_TILE_GRID_SIZE = 10;
+export const CANOPY_TILE_THICKNESS = 0.1;
+
+// --- Tree Structure Ratio (Client needs for rendering calculations) ---
+export const k_TA_LA_RATIO = 0.01; // Trunk cross-section area / Leaf Area ratio
+export const INITIAL_LEAF_AREA = 5; // Used in tree.js for calculating initial tile size
+
+// --- Environment Visuals (Client needs for environment.js defaults/calcs) ---
+export const PERIOD_DURATION = 7.0;
+export const NUM_DAY_PERIODS = 3;
+export const DAY_TOTAL_DURATION = PERIOD_DURATION * NUM_DAY_PERIODS;
+export const NIGHT_DURATION = 3.0;
+export const TOTAL_CYCLE_DURATION = DAY_TOTAL_DURATION + NIGHT_DURATION;
+export const LIGHT_MULT_SUNNY = 1.0;
+export const LIGHT_MULT_CLOUDY = 0.4;
+export const DROUGHT_MULT_BASE = 1.0;
+export const DROUGHT_VARIATION = 0.4;
 
 
---- FILE: README.md ---
-# FOREST ROYALE: A Plant Ecophysiology Game
-
-## 1. Overview
-
-**Island Canopy Sim** is an interactive web-based simulation game designed to teach fundamental concepts of plant ecophysiology, specifically focusing on tree "decision-making" under environmental constraints. Developed as part of PhD research in plant ecophysiology at [Your University/Institution - Optional], this project uses trees as a model system for studying resource allocation and survival strategies in sessile organisms facing gradual environmental change (like climate change).
-
-The primary goal is to create an engaging, accessible (playable on web/mobile), and scientifically grounded experience, initially targeted for a high school science fair audience, but with potential for broader educational use. The game aims to translate complex physiological processes and trade-offs into intuitive game mechanics.
-
-We approach trees not just as passive responders, but as agents making strategic "decisions" (e.g., stomatal aperture, carbon allocation) to maximize lifetime fitness (represented by reproductive output) within the bounds of physical and chemical laws governing water transport and photosynthesis.
-
-## 2. Core Concept
-
-Players control an individual tree on a shared island map (currently single-player). The objective is to survive environmental challenges (like drought) and maximize lifetime seed production. This requires balancing competing demands:
-
-*   **Growth:** Investing carbon into increasing height and leaf area can improve light capture but increases water demand and respiration costs.
-*   **Reproduction:** Allocating carbon to seeds directly contributes to the player's score but detracts from growth and reserves.
-*   **Survival (Savings & Safety):** Maintaining sufficient carbon reserves and hydraulic safety is essential to survive periods of stress (e.g., drought, low light) and nightly respiration costs.
-
-Players make real-time decisions (stomatal aperture) and periodic strategic decisions (carbon allocation) to navigate these trade-offs.
-
-## 3. Scientific Principles Demonstrated
-
-This simulation aims to illustrate key concepts in plant ecophysiology:
-
-*   **Resource Allocation Trade-offs:** The fundamental conflict between allocating limited resources (carbon) towards growth, reproduction, storage (savings), and defense (implicit via survival).
-*   **Photosynthesis-Transpiration Compromise:** The need to open stomata for CO2 uptake (photosynthesis) inevitably leads to water loss (transpiration), requiring players to manage stomatal aperture based on water availability (hydraulic safety) and carbon demand.
-*   **Hydraulic Limits:** Demonstrating that exceeding the water transport capacity (represented by low `hydraulicSafety`) leads to physiological damage (canopy dieback) and potentially death. (Currently modeled linearly with thresholds).
-*   **Carbon Balance:** The dynamic interplay between carbon gain (photosynthesis) and carbon loss (respiration, growth, reproduction), requiring players to manage reserves to avoid starvation.
-*   **Environmental Response:** How changing conditions (light - future, water/drought - basic implementation) affect physiological processes and strategic decisions.
-*   **Within-Generation Plasticity:** How a tree's "strategy" can change over its lifetime based on its state and environment, distinct from evolutionary adaptation.
-*   **(Future) Competition:** How interactions with neighbors (e.g., shading) influence resource capture and survival.
-
-## 4. Current Features (As of this README update)
-
-*   **Single-Player Mode:** One player controls one tree.
-*   **3D Environment:** Simple island map using Three.js (flat cylinder island, water plane). Basic directional lighting simulating the sun. OrbitControls for camera interaction.
-*   **Core Tree Model:** Rectangular prism trunk + thin rectangular canopy geometry. Trunk-to-leaf area ratio maintained during growth.
-*   **Player Customization:** Leaf and trunk color selectable via color pickers in the UI.
-*   **Resource Meters:**
-    *   **Carbon Storage:** Increases with photosynthesis, decreases with respiration and allocation. Max capacity (`MAX_CARBON`). Death if <= 0.
-    *   **Hydraulic Safety:** Decreases with transpiration (linked to stomata & drought factor), recovers slowly when stomata are closed. Max capacity (`MAX_HYDRAULIC`).
-*   **Real-Time Control:** Stomatal aperture controlled via a UI slider (0-100%).
-*   **Day/Night Cycle:** Defined durations for day (simulation active) and night (allocation phase).
-*   **Allocation Phase (Nightly):**
-    *   **Two-Slider UI:** Controls allocation via "Savings %" and "Growth/Seed Ratio %".
-    *   **10-Second Timer:** Visible countdown for making the allocation decision.
-    *   **Default/Timeout:** If the timer expires, the allocation proceeds based on the *current state* of the sliders (allowing implicit choice). *(Correction based on user request - previous version used a fixed random strategy)*.
-    *   **Persistence:** The slider positions from the last *manual* submission are remembered and used as the default starting position for the *next* allocation phase. Random timeout allocations do not update the remembered state.
-    *   **Savings Allowed:** Players can explicitly save carbon by adjusting the "Savings %" slider.
-    *   **Seed Cost:** Simplified to 1 Carbon per seed.
-    *   **Immediate Transition:** After allocation submission (manual or timeout), the game immediately transitions to the next day (no idle night period).
-*   **Physiological Consequences:**
-    *   **Canopy Damage:** If `hydraulicSafety` drops below `HYDRAULIC_DAMAGE_THRESHOLD`, `damagedLAPercentage` increases, reducing effective leaf area for photosynthesis and visually tinting the canopy brown.
-    *   **Death:** Occurs if `hydraulicSafety <= 0` (Desiccation) or `carbonStorage <= 0` (Starvation). Dead trees lose their canopy visually.
-*   **Growth:** Spending carbon on growth increases tree height and leaf area (updating geometry).
-*   **Modular Code Structure:** Code is organized into JavaScript modules (`config.js`, `gameState.js`, `sceneSetup.js`, `tree.js`, `ui.js`, `simulation.js`, `main.js`).
-
-## 5. Technology Stack
-
-*   **Frontend:** HTML5, CSS3, JavaScript (ES6 Modules)
-*   **3D Rendering:** [Three.js](https://threejs.org/) library (via CDN)
-*   **Camera Controls:** `OrbitControls` (from Three.js examples)
-*   **Local Development Server:** Any simple static server (e.g., `npx serve`, Python's `http.server`, VS Code Live Server)
-
-## 6. Project Structure
-
-The project code is organized into the following JavaScript modules:
-
-*   `main.js`: Main application entry point. Initializes modules, sets up the core game loop (`requestAnimationFrame`). Handles overall application flow like restart.
-*   `config.js`: Stores all game constants (rates, costs, durations, initial values, thresholds, colors, etc.).
-*   `gameState.js`: Defines and manages the central `gameState` object, including initialization logic. Stores all dynamic variables of the simulation.
-*   `sceneSetup.js`: Initializes and manages the Three.js `scene`, `camera`, `renderer`, `lights`, and `OrbitControls`. Creates the static environment (island, water). Handles window resizing. Exports key Three.js objects.
-*   `tree.js`: Handles all aspects of the player's tree object: geometry creation (`createPlayerTree`), dimension calculations (`calculateDimensions`), growth logic (`growTree`), material/color updates (`updateTreeColors`, `updateCanopyVisuals`), visibility (`setCanopyVisibility`), and resource disposal (`disposeTreeMaterials`).
-*   `simulation.js`: Contains the core simulation logic run each frame (`updateSimulation`). Handles the day/night cycle transitions, calculation of photosynthesis, respiration, transpiration, hydraulic changes, damage accumulation, and checking for game over conditions. Includes logic to start a new day (`startNewDay`).
-*   `ui.js`: Manages all interactions with the HTML Document Object Model (DOM). Caches element references (`cacheDOMElements`), sets up event listeners (`setupUIListeners`), updates UI displays based on `gameState` (`updateUI`), handles showing/hiding the allocation section (`showAllocationSection`, `hideAllocationSection`), manages the allocation timer and preview (`startAllocationTimer`, `clearAllocationTimer`, `updateAllocationPreview`), handles allocation submission (`submitAllocation`), displays messages (`showMessage`, `clearMessage`), and manages the game over screen UI (`showGameOverUI`).
-
-## 7. Getting Started / Running the Project
-
-1.  **Clone or Download:** Get the project files onto your local machine. If using git:
-    ```bash
-    git clone <repository-url>
-    cd <repository-directory>
-    ```
-2.  **Install a Simple Web Server (if needed):** If you don't have one, Node.js is recommended. Install Node.js (which includes `npm`), then you can use `npx`:
-    ```bash
-    # No installation needed if you have Node.js >= 16 approx.
-    ```
-3.  **Run the Server:** Navigate to the project's root directory in your terminal and run:
-    ```bash
-    npx serve
-    ```
-    Alternatively, use Python (if installed):
-    ```bash
-    python -m http.server
-    ```
-    Or use the Live Server extension in VS Code.
-4.  **Open in Browser:** The server will typically output a local address (e.g., `http://localhost:3000` or `http://localhost:8000`). Open this address in a modern web browser (Chrome, Firefox, Edge recommended).
-
-The game should load and start running.
-
-## 8. Gameplay Mechanics (Detailed)
-
-*   **Objective:** Survive as long as possible and produce the maximum number of seeds (`gameState.seedCount`).
-*   **Camera:** Use the mouse (left-click drag to orbit, right-click drag to pan, scroll wheel to zoom) to view your tree and the environment.
-*   **Stomata Control:** Use the "Stomata Openness" slider in the UI. Higher values increase photosynthesis potential but also increase water loss (`hydraulicSafety` decrease). Lower values conserve water but reduce carbon gain.
-*   **Color Customization:** Use the color pickers to change the appearance of your tree's trunk and leaves at any time.
-*   **Status Meters:** Monitor your `Carbon Storage` and `Hydraulic Safety` bars. Keep them above critical levels.
-*   **Day Phase:** The simulation runs. Photosynthesis adds carbon, respiration consumes carbon. Transpiration consumes hydraulic safety. Hydraulic safety recovers slowly if stomata are closed. If hydraulic safety drops below the threshold (`HYDRAULIC_DAMAGE_THRESHOLD`), the canopy visually darkens, and `effectiveLA` decreases, reducing photosynthesis.
-*   **Night Phase (Allocation):** At the end of the day, the game pauses, and the "Night Allocation" panel appears.
-    *   You have **10 seconds** (indicated by the timer) to decide.
-    *   **Savings % Slider:** Sets the percentage of *currently available* carbon you wish to keep in reserve.
-    *   **Growth/Seed Ratio % Slider:** Determines how the *remaining non-saved carbon* will be split between growth investment and seed production.
-    *   **Preview:** The summary text below the sliders updates in real-time to show the calculated carbon amounts for growth, the number of seeds produced (costing 1 C each), and the final amount of carbon saved.
-    *   **Persistence:** The slider positions will default to the values you *manually submitted* in the previous round.
-    *   **Submission:** Click "Allocate & Start New Day" to confirm your choice *before* the timer runs out.
-    *   **Timeout:** If the timer reaches zero, the allocation is automatically submitted based on the *current positions* of the sliders.
-*   **End of Allocation:** The allocation panel disappears, the chosen amounts are spent (or saved), the seed count updates, the tree grows (if applicable), and the simulation immediately transitions to the start of the next day.
-*   **Game Over:** If Carbon Storage hits 0 (Starvation) or Hydraulic Safety hits 0 (Desiccation), the game ends. The canopy disappears, and a modal shows your final score (days survived, seeds produced). Click "Play Again" to restart.
-
-## 9. Simulation Model Details (Internal Logic)
-
-*   **Carbon Balance:**
-    *   `Gain (Photosynthesis) = PHOTOSYNTHESIS_RATE_PER_LA * effectiveLA * stomatalConductance * deltaTime` (Light is currently assumed constant max during day).
-    *   `Loss (Respiration) = (RESPIRATION_RATE_PER_LA * currentLA + RESPIRATION_RATE_PER_TRUNK_VOL * trunkVolume) * deltaTime`.
-    *   `Loss (Allocation) = actualCarbonForGrowth + actualCarbonForSeeds` (occurs instantly at night).
-*   **Hydraulics:**
-    *   `Water Loss Rate = TRANSPIRATION_RATE_PER_LA * effectiveLA * stomatalConductance * droughtFactor`.
-    *   `Recovery Rate = HYDRAULIC_RECOVERY_RATE * (1 - stomatalConductance)`.
-    *   `Hydraulic Change = (Recovery Rate - Water Loss Rate) * deltaTime`.
-    *   `hydraulicSafety` is clamped between 0 and `MAX_HYDRAULIC`.
-    *   **No PLC Curve:** This is a simplified linear "safety buffer" model, not a direct simulation of water potential or Percentage Loss of Conductivity based on a vulnerability curve.
-*   **Growth:**
-    *   Calculates `biomassToAdd` based on `carbonForGrowth` and `GROWTH_COST_PER_LA`.
-    *   Calculates a `growthFactor` based on the ratio of `biomassToAdd` to an estimated current biomass.
-    *   Increases `currentLA` and `trunkHeight` by this factor.
-    *   Recalculates `trunkWidth`, `trunkDepth`, `canopyWidth`, `canopyDepth` using `calculateDimensions` based on the new `currentLA` and the fixed `k_TA_LA_RATIO`.
-    *   Updates the `geometry` of the trunk and canopy meshes (disposing of old geometry).
-*   **Damage:**
-    *   If `hydraulicSafety < HYDRAULIC_DAMAGE_THRESHOLD`: `damagedLAPercentage += CROWN_DIEBACK_RATE * deltaTime` (capped at 1).
-    *   `effectiveLA = currentLA * (1 - damagedLAPercentage)`.
-    *   Visuals: `canopyMaterial` color is linearly interpolated between `leafColor` and brown based on `damagedLAPercentage`.
-*   **Allocation (Sliders):**
-    *   `carbonToSpend = floor(availableCarbon * (1 - savingsPercent / 100))`
-    *   `carbonForGrowth = floor(carbonToSpend * (growthRatioPercent / 100))`
-    *   `carbonForSeeds = carbonToSpend - carbonForGrowth`
-    *   `seedsMade = carbonForSeeds` (since `SEED_COST` = 1)
-    *   `totalSpent = carbonForGrowth + carbonForSeeds`
-    *   `finalSavings = availableCarbon - totalSpent`
-
-## 10. Development Roadmap & Future Directions
-
-This project is actively under development. Key areas for future work include:
-
-1.  **Troubleshooting & Polish:**
-    *   Address any remaining bugs in the current single-player implementation (e.g., allocation UI behavior if issues persist).
-    *   Refine UI layout and visual feedback (e.g., clearer indication of low resources, visual effect for allocation/sunrise).
-    *   Refactor `ui.js` into smaller modules for better maintainability.
-2.  **Refining Game Logic & Mechanics:**
-    *   Introduce more sophisticated interactions (e.g., how does canopy damage affect respiration? Does growth cost change with tree size? Does low carbon affect hydraulic recovery?).
-    *   Consider adding defense allocation/costs (e.g., against pests/disease - maybe abstractly linked to maintaining high carbon reserves?).
-    *   Fine-tune balancing based on the 1C seed cost and other parameters through playtesting.
-3.  **Environment & Weather Representation:**
-    *   Implement dynamic `droughtFactor`: Vary water availability randomly or seasonally.
-    *   Introduce light variation: Simulate daily light changes, potentially add cloud cover effects.
-    *   (Future) Add seasons affecting temperature (respiration), light, water.
-4.  **Multiplayer Implementation:**
-    *   **Backend:** Set up a Node.js server with WebSockets (e.g., Socket.IO).
-    *   **Spawning:** Implement the "Fortnite-style" drop and landing spot selection.
-    *   **State Synchronization:** Reliably sync tree positions, sizes, states, and environmental conditions.
-    *   **Interaction:** Implement shading calculations between players (server-side calculation likely needed for fairness/performance).
-    *   **Scalability:** Optimize for target player count (e.g., 50 players).
-5.  **Enhancing Scientific Accuracy (Longer Term):**
-    *   Optionally replace linear hydraulics with a model incorporating water potential and a PLC curve.
-    *   Refine photosynthesis model (e.g., light response curves).
-    *   More detailed biomass/respiration modeling.
-6.  **Educational Context:**
-    *   Add tooltips or info panels explaining the scientific concepts behind game mechanics.
-    *   Potentially link game events or parameters to real-world climate change scenarios or data.
-
-## 11. Contributing
-
-[Optional: Add guidelines if you plan for others to contribute - e.g., how to report bugs, suggest features, coding style.]
-
-## 12. License
-
-[Optional: Add a license, e.g., MIT, Apache 2.0, or specify if it's proprietary.]
-
-## 13. Contact
-
-Developed by [Your Name/Alias], PhD Student in Plant Ecophysiology.
-[Optional: Add contact email or link]
+// NOTE: Simulation rates, costs, probabilities, etc., are now primarily server-side
 

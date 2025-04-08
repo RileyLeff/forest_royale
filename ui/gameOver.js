@@ -1,61 +1,56 @@
 // ui/gameOver.js
 // Handles showing and hiding the Game Over modal UI.
 
-// Import shared game state to read final scores and reason
-import { gameState } from '../gameState.js'; // Adjust path as needed
-// Import UI elements cache
+import { gameState, getMyPlayerState } from '../gameState.js'; // Import state
 import { uiElements } from './elements.js';
-// Import tree function needed to visually update tree on game over
-import { setCanopyVisibility } from '../tree.js'; // Adjust path as needed
+// Tree visibility handled by main loop based on isAlive now
+// import { setCanopyVisibility } from '../tree.js';
 
 /**
  * Displays the Game Over modal, populating it with final stats.
- * Assumes the gameState.gameOver flag and reason have already been set.
+ * Assumes the gameState.gameOver flag, reason, and winnerId have already been set.
  */
 export function showGameOverUI() {
-    console.log("UI: showGameOverUI called."); // Log function start
+    console.log("UI: showGameOverUI called.");
 
-    // Check required elements exist
-    if (!uiElements.gameOverModal) {
-        console.error("UI ERROR: gameOverModal element not found in showGameOverUI!");
-        return;
-    }
-    if (!uiElements.gameOverReasonUI) {
-        console.error("UI ERROR: gameOverReasonUI element not found in showGameOverUI!");
-        // Attempt to continue without the reason text
-    }
-    if (!uiElements.finalDayUI) {
-         console.warn("UI element finalDayUI missing.");
-    }
-     if (!uiElements.finalSeedsUI) {
-         console.warn("UI element finalSeedsUI missing.");
-    }
+    if (!uiElements.gameOverModal) { console.error("UI ERROR: gameOverModal element not found!"); return; }
+    if (!uiElements.gameOverReasonUI) { console.warn("UI element gameOverReasonUI missing."); }
+    if (!uiElements.finalDayUI) { console.warn("UI element finalDayUI missing."); }
+    if (!uiElements.finalSeedsUI) { console.warn("UI element finalSeedsUI missing."); }
 
-
-    console.log(`UI: Attempting to display reason: "${gameState.gameOverReason}"`);
+    // Get local player's final state for display
+    const myFinalState = getMyPlayerState(); // Might be null if disconnected before game over
+    const finalDay = gameState.day;
+    const finalSeeds = myFinalState?.seedCount ?? 0; // Show 0 if state missing
 
     // --- Populate Modal Content ---
-    // Set text content, checking if elements exist first
-    if(uiElements.gameOverReasonUI) {
-        uiElements.gameOverReasonUI.textContent = gameState.gameOverReason;
-        console.log("UI: gameOverReasonUI textContent set.");
+    let reasonText = gameState.gameOverReason;
+    // Check if there's a winner and if it's us
+    if (gameState.winnerId) {
+        const winnerState = gameState.players[gameState.winnerId];
+        const winnerName = winnerState?.playerName || `Player ${gameState.winnerId.substring(0,4)}`;
+        if (gameState.winnerId === gameState.myId) {
+            reasonText += `<br><strong>Congratulations, you had the most seeds!</strong>`;
+        } else {
+             reasonText += `<br>Winner: ${winnerName} with ${winnerState?.seedCount ?? '?'} seeds.`;
+        }
     } else {
-        console.log("UI: gameOverReasonUI element was missing, couldn't set text.");
+        // Handle cases with no winner? (e.g., admin stop)
+         reasonText += "<br>No winner declared." // Or specific message
     }
 
+
+    if(uiElements.gameOverReasonUI) {
+        uiElements.gameOverReasonUI.innerHTML = reasonText; // Use innerHTML for the <br> and <strong>
+    }
     if(uiElements.finalDayUI) {
-        uiElements.finalDayUI.textContent = gameState.day;
+        uiElements.finalDayUI.textContent = finalDay;
     }
-
     if(uiElements.finalSeedsUI) {
-        uiElements.finalSeedsUI.textContent = gameState.seedCount;
+        uiElements.finalSeedsUI.textContent = finalSeeds;
     }
 
-    // --- Trigger Visual Changes Associated with Game Over ---
-    // Note: Canopy hiding is logically part of game over, triggered by simulation,
-    // but we ensure it's called here just in case. Best practice is Simulation calls it.
-    setCanopyVisibility(false); // Reads gameState internally now
-
+    // Tree visibility is handled by the main loop checking player.isAlive status
 
     // --- Show the Modal ---
     uiElements.gameOverModal.classList.remove('hidden');

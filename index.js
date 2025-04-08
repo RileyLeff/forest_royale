@@ -1,3 +1,5 @@
+// index.js (in project root)
+
 document.addEventListener('DOMContentLoaded', () => {
     const singlePlayerButton = document.getElementById('start-single-player');
     const multiPlayerButton = document.getElementById('start-multi-player');
@@ -6,7 +8,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (singlePlayerButton) {
         singlePlayerButton.addEventListener('click', () => {
             console.log("Navigating to Single Player game...");
-            window.location.href = 'game.html'; // Navigate to the main game page
+            // Navigate to the /game ROUTE, not the file directly
+            window.location.href = '/game';
         });
     }
 
@@ -15,12 +18,15 @@ document.addEventListener('DOMContentLoaded', () => {
         multiPlayerButton.addEventListener('mouseover', () => {
            // Optional: Show a tooltip explaining it's disabled
         });
+        // Make sure it stays disabled if needed
+        multiPlayerButton.disabled = true;
     }
 
     if (settingsButton) {
         settingsButton.addEventListener('click', () => {
             console.log("Navigating to Settings...");
-            window.location.href = 'settings.html'; // Navigate to the settings page
+             // Navigate to the /settings ROUTE
+            window.location.href = '/settings';
         });
     }
 });

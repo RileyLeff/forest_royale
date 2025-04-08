@@ -394,15 +394,33 @@ server.listen(PORT, () => {
     // Don't start the simulation immediately, wait for lobby/start logic
     // startGameSimulation();
 });
+// server/server.js
+
+// ... (rest of the server code) ...
 
 // Example: Start game manually for testing (replace with lobby logic later)
-// setTimeout(() => {
-//     console.log("SERVER: Manually starting game for testing...");
-//     globalGameState.gamePhase = 'playing';
-//     // Mark all connected players as alive and give them a default spawn
-//     Object.values(players).forEach(p => {
-//          p.isAlive = true;
-//          p.spawnPoint = { x: Math.random() * 10 - 5, y: Config.ISLAND_LEVEL, z: Math.random() * 10 - 5 }; // Random spawn for testing
-//     });
-//     startGameSimulation();
-// }, 5000); // Start after 5 seconds
+setTimeout(() => {
+    if (Object.keys(players).length === 0) {
+         console.log("SERVER: Skipping manual start, no players connected.");
+         return; // Don't start if no one is here
+    }
+    console.log("SERVER: Manually starting game for testing...");
+    globalGameState.gamePhase = 'playing'; // Set phase to playing
+
+    // Mark all connected players as alive and give them a default spawn
+    Object.values(players).forEach((p, index) => { // Get index for slight offset
+         p.isAlive = true; // <<< SET TO TRUE
+         // Simple offset spawn for testing multiple players later
+         const angle = (index / Object.keys(players).length) * Math.PI * 2;
+         const radius = 5; // Spawn in a small circle
+         p.spawnPoint = {
+             x: radius * Math.cos(angle),
+             // Use Config.ISLAND_LEVEL from server config for base height
+             y: Config.ISLAND_LEVEL,
+             z: radius * Math.sin(angle)
+         };
+         console.log(`SERVER: Player ${p.id} marked alive at ${p.spawnPoint.x.toFixed(1)}, ${p.spawnPoint.z.toFixed(1)}`);
+    });
+
+    startGameSimulation(); // Start the actual simulation loop
+}, 5000); // Start after 5 seconds

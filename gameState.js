@@ -1,73 +1,76 @@
-import * as Config from './config.js';
+// gameState.js
+import * as Config from './config.js'; // Keep config for defaults if needed momentarily
 
-export const gameState = {};
+// The main state object. Will be populated primarily by server updates.
+export const gameState = {
+    // --- Server Synced State (Defaults for initial load) ---
+    day: 1,
+    timeInCycle: 0.0,
+    currentPeriodIndex: -1,
+    isNight: false,
+    currentLightMultiplier: 1.0,
+    currentDroughtFactor: Config.DROUGHT_MULT_BASE,
+    isRaining: false,
+    gamePhase: 'loading', // Start in a 'loading' phase until server confirms
+    players: {}, // Stores player state keyed by ID: { id: { ...playerData } }
+    serverTime: Date.now(),
 
-export function initializeGameState() {
-    // Load settings from localStorage or use defaults
-    const savedName = localStorage.getItem('playerName') || 'Treebard';
-    const savedLeafColor = localStorage.getItem('leafColor') || Config.DEFAULT_LEAF_COLOR;
-    const savedTrunkColor = localStorage.getItem('trunkColor') || Config.DEFAULT_TRUNK_COLOR;
+    // --- Client-Specific State ---
+    // Local player's ID (set on connection)
+    myId: null,
+    // Spectator status (set on connection/load)
+    isSpectator: false, // TODO: Implement spectator joining logic
+    // Game over state (set by server 'gameOver' event)
+    gameOver: false,
+    gameOverReason: '',
+    winnerId: null, // ID of the winner
 
-    Object.assign(gameState, {
-        // Core gameplay state
-        carbonStorage: Config.INITIAL_CARBON,
-        hydraulicSafety: Config.INITIAL_HYDRAULICS,
-        currentLA: Config.INITIAL_LEAF_AREA,
-        effectiveLA: Config.INITIAL_LEAF_AREA,
-        trunkHeight: Config.INITIAL_TRUNK_HEIGHT,
-        seedCount: 0,
-        stomatalConductance: 0.5,
-        day: 1,
-        // timeOfDay: 'day', // REMOVED: Replaced by isNight and period index
-        timeInCycle: 0.0,   // Tracks time *within* the current full day/night cycle
+    // --- Old Local State (To be removed or carefully managed) ---
+    // These values will now come from the 'players' object above, indexed by myId
+    // carbonStorage: Config.INITIAL_CARBON,
+    // hydraulicSafety: Config.INITIAL_HYDRAULICS,
+    // currentLA: Config.INITIAL_LEAF_AREA,
+    // effectiveLA: Config.INITIAL_LEAF_AREA,
+    // trunkHeight: Config.INITIAL_TRUNK_HEIGHT,
+    // seedCount: 0,
+    // stomatalConductance: 0.5, // Input state, sent to server
+    // damagedLAPercentage: 0,
+    // playerName: 'Treebard', // Loaded from localStorage, sent to server on join?
+    // leafColor: Config.DEFAULT_LEAF_COLOR,
+    // trunkColor: Config.DEFAULT_TRUNK_COLOR,
+    // lastSavingsPercent: 50, // Input state, sent to server
+    // lastGrowthRatioPercent: 50, // Input state, sent to server
+    // maxHydraulic: 0,
 
-        gameOver: false,
-        gameOverReason: '',
+    // Tree object references (Client-side rendering objects)
+    // We need a way to map player IDs to their tree meshes
+    playerTrees: new Map(), // Map<playerId, THREE.Group>
 
-        // Tree object reference
-        treeMeshGroup: null,
-        damagedLAPercentage: 0,
+    // Flag to indicate if the initial state has been received
+    initialStateReceived: false,
+};
 
-        // Settings loaded from localStorage
-        playerName: savedName,
-        leafColor: savedLeafColor,
-        trunkColor: savedTrunkColor,
-
-        // Last allocation state (still needed, updated by sliders)
-        lastSavingsPercent: 50,
-        lastGrowthRatioPercent: 50,
-
-        // Derived dimensions (calculated after init)
-        trunkWidth: 0,
-        trunkDepth: 0,
-        canopyWidth: 0,
-        canopyDepth: 0,
-
-        // Maximum hydraulic buffer, calculated dynamically
-        maxHydraulic: 0,
-
-        // ++ NEW: Weather & Time State ++
-        currentPeriodIndex: -1,     // 0, 1, 2 for day periods, -1 for night or initial state
-        isNight: false,             // Flag indicating if it's currently nighttime
-        currentLightMultiplier: 1.0,// Current effect of light on photosynthesis
-        currentDroughtFactor: Config.DROUGHT_MULT_BASE, // Current effect of drought on transpiration
-        isRaining: false,           // Flag indicating if it's currently raining
-        foliarUptakeAppliedThisNight: false, // Tracks if night rain boost was applied
-        // No 'dailyWeather' array needed for dynamic generation
-        // ++ END NEW ++
-
-        // ++ INTERNAL: Flags for simulation logic ++
-        // allocationAppliedThisCycle: false, // RENAMED: More specific flags needed
-        growthAppliedThisCycle: false, // Tracks if growth was triggered in the current night phase
-        // ++ END INTERNAL ++
-    });
-
-    // Calculate initial maxHydraulic and clamp starting safety
-    gameState.maxHydraulic = Config.BASE_HYDRAULIC + Config.HYDRAULIC_SCALE_PER_LA * gameState.currentLA;
-    gameState.hydraulicSafety = Math.min(gameState.hydraulicSafety, gameState.maxHydraulic);
-
-    console.log(`GameState Initialized. Player: ${gameState.playerName}, Leaf: ${gameState.leafColor}, Trunk: ${gameState.trunkColor}, MaxHydraulics: ${gameState.maxHydraulic.toFixed(1)}`);
+// We no longer initialize the full state here.
+// Server will send the authoritative state.
+// We might load local settings like name/color here later.
+export function loadClientSettings() {
+    // Placeholder for loading player name/color prefs later
+    // const savedName = localStorage.getItem('playerName') || 'Treebard';
+    // const savedLeafColor = localStorage.getItem('leafColor') || Config.DEFAULT_LEAF_COLOR;
+    // const savedTrunkColor = localStorage.getItem('trunkColor') || Config.DEFAULT_TRUNK_COLOR;
+    // gameState.playerName = savedName;
+    // gameState.leafColor = savedLeafColor;
+    // gameState.trunkColor = savedTrunkColor;
+    console.log("Client settings loaded (placeholder).");
 }
 
-// Call initialization immediately when the module loads
-initializeGameState();
+// Call settings load immediately (can be done in main.js too)
+loadClientSettings();
+
+// Helper function to get the local player's state object
+export function getMyPlayerState() {
+    if (!gameState.myId || !gameState.players[gameState.myId]) {
+        return null; // Not connected or state not received yet
+    }
+    return gameState.players[gameState.myId];
+}

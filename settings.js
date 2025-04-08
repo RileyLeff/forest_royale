@@ -1,3 +1,5 @@
+// settings.js (in project root)
+
 document.addEventListener('DOMContentLoaded', () => {
     const playerNameInput = document.getElementById('player-name');
     const leafColorInput = document.getElementById('leaf-color');
@@ -40,8 +42,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (saveButton) {
         saveButton.addEventListener('click', () => {
             saveSettings();
-            // Navigate back to the landing page
-            window.location.href = 'index.html';
+            // Navigate back to the root landing page route
+            window.location.href = '/';
         });
     }
 
