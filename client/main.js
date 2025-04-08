@@ -68,11 +68,14 @@ function initializeApp() {
 
     console.log("Attempting to connect to server...");
     // Create socket instance here, so it's available for export
+    console.log("[main.js] About to call io() constructor..."); // <<< ADD LOG
     socket = io({
          reconnection: true, // Enable default reconnection
          reconnectionAttempts: 5,
          reconnectionDelay: 1000,
     });
+    console.log("[main.js] io() constructor called. Socket ID (initially):", socket?.id || 'N/A'); // <<< ADD LOG (Use optional chaining)
+
     setupSocketListeners(intent); // Pass intent
     setupUIListeners(); // Sets up listeners for game controls etc.
     updateUI(); clearMessage();

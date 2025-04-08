@@ -63,7 +63,7 @@ export class GameInstance {
    removePlayer(socketId) { if (this.state.players.has(socketId)) { this.state.players.delete(socketId); /* console.log(`GameInstance ${this.state.instanceId}: Removed player ${socketId}. Remaining: ${this.state.players.size}`); */ return true; } return false; } // Reduced log noise
    getPlayerState(socketId) { return this.state.players.get(socketId) || null; }
    getAllPlayers() { return this.state.players; }
-   getNonSpectatorPlayers() { return Array.from(this.state.players.values()).filter(p => !p.isSpectator); }
+   getNonSpectatorPlayers() { return Array.from(this.state.players.values()).filter(p => !p.isSpectator && !p.playerName.startsWith('ADMIN_')); } // Also filter admins here
 
    // --- State Access/Modification (methods as before) ---
    getSnapshot() { /* ... as before ... */ const playersSnapshot = {}; this.state.players.forEach((playerData, playerId) => { playersSnapshot[playerId] = { id: playerData.id, playerName: playerData.playerName, isAlive: playerData.isAlive, hasChosenSpawn: playerData.hasChosenSpawn, isSpectator: playerData.isSpectator, carbonStorage: playerData.carbonStorage, hydraulicSafety: playerData.hydraulicSafety, maxHydraulic: playerData.maxHydraulic, currentLA: playerData.currentLA, trunkHeight: playerData.trunkHeight, damagedLAPercentage: playerData.damagedLAPercentage, seedCount: playerData.seedCount, spawnPoint: playerData.spawnPoint }; }); return { instanceId: this.state.instanceId, mode: this.state.mode, day: this.state.day, timeInCycle: this.state.timeInCycle, currentPeriodIndex: this.state.currentPeriodIndex, isNight: this.state.isNight, currentLightMultiplier: this.state.currentLightMultiplier, currentDroughtFactor: this.state.currentDroughtFactor, isRaining: this.state.isRaining, gamePhase: this.state.gamePhase, countdownTimer: this.state.countdownTimer, allowPlayerCountdownStart: this.state.allowPlayerCountdownStart, players: playersSnapshot, serverTime: Date.now() }; }
@@ -84,8 +84,8 @@ export class GameInstance {
        // console.log(`Instance ${this.state.instanceId}: runTick START - Phase: ${this.state.gamePhase}, Delta: ${deltaTime.toFixed(3)}`);
 
        if (this.state.gamePhase !== 'playing') {
-           console.warn(`Instance ${this.state.instanceId}: runTick called while not playing. Stopping sim.`);
-           this.stopSimulationLoop();
+           // console.warn(`Instance ${this.state.instanceId}: runTick called while not playing. Ignoring.`); // Reduce noise
+           // this.stopSimulationLoop(); // Don't stop, just ignore the tick
            return;
        }
 
@@ -101,7 +101,7 @@ export class GameInstance {
        // --- 3. Update Each Player's State ---
        let playersAliveThisTick = 0;
        this.state.players.forEach(playerState => {
-           if (!playerState.isAlive) return;
+           if (!playerState.isAlive || playerState.isSpectator || playerState.playerName.startsWith('ADMIN_')) return; // Skip dead/spectators/admins
            this._updatePlayerPhysiology(playerState, deltaTime);
            if ((playerState.carbonStorage <= 0 || playerState.hydraulicSafety <= 0)) {
                 // console.log(`Instance ${this.state.instanceId}: Player ${playerState.id} died in tick.`); // Log death check
@@ -113,7 +113,7 @@ export class GameInstance {
 
        // --- 4. Check for Game End Condition ---
        const activePlayersCount = this.getNonSpectatorPlayers().length;
-       if (playersAliveThisTick === 0 && activePlayersCount > 0) {
+       if (playersAliveThisTick === 0 && activePlayersCount > 0 && this.state.gamePhase === 'playing') { // Ensure we only end if playing
             console.log(`Instance ${this.state.instanceId} Tick: All active players dead condition met. Ending game.`);
             this.endGame("All trees have perished!");
             return; // endGame stops loop, sets phase etc.
@@ -139,7 +139,7 @@ export class GameInstance {
            this.state.players.forEach(p => { p.growthAppliedThisCycle = false; });
             this.state._previousPeriodIndexForWeather = -1; // Reset internal weather tracker for new day
             // +++ Log New Day +++
-            console.log(`--- Instance ${this.state.instanceId}: NEW DAY ${this.state.day} Started ---`);
+            // console.log(`--- Instance ${this.state.instanceId}: NEW DAY ${this.state.day} Started ---`); // Reduce noise
        }
 
        let calculatedPeriodIndex;
@@ -158,7 +158,7 @@ export class GameInstance {
 
        if (periodChanged) {
             // +++ Log Period Change Detected +++
-            console.log(`--- Instance ${this.state.instanceId}: Period Changed! New Index: ${calculatedPeriodIndex} (was ${this.state._previousPeriodIndexForWeather}) ---`);
+            // console.log(`--- Instance ${this.state.instanceId}: Period Changed! New Index: ${calculatedPeriodIndex} (was ${this.state._previousPeriodIndexForWeather}) ---`); // Reduce noise
 
            const oldPeriodIndex = this.state._previousPeriodIndexForWeather;
            this.state._previousPeriodIndexForWeather = calculatedPeriodIndex; // Update tracker
@@ -166,12 +166,12 @@ export class GameInstance {
            if (!this.state.isNight) {
                const isCloudy = this._generatePeriodWeather(); // Updates state internally
                 this.state.isRaining = isCloudy && (Math.random() < RAIN_PROB_IF_CLOUDY);
-                console.log(`Instance ${this.state.instanceId}: Day ${this.state.day}, Period ${calculatedPeriodIndex+1} Weather - Cloudy: ${isCloudy}, Raining: ${this.state.isRaining}, Light: ${this.state.currentLightMultiplier.toFixed(2)}, Drought: ${this.state.currentDroughtFactor.toFixed(2)}`);
+                // console.log(`Instance ${this.state.instanceId}: Day ${this.state.day}, Period ${calculatedPeriodIndex+1} Weather - Cloudy: ${isCloudy}, Raining: ${this.state.isRaining}, Light: ${this.state.currentLightMultiplier.toFixed(2)}, Drought: ${this.state.currentDroughtFactor.toFixed(2)}`); // Reduce noise
            } else {
                 if (oldPeriodIndex !== -1) { // Only generate night weather ONCE when transitioning into night
                    this._generateNightWeather(); // Updates state internally
                    this.state.players.forEach(p => { p.foliarUptakeAppliedThisNight = false; }); // Reset flag for night rain boost
-                   console.log(`Instance ${this.state.instanceId}: Entering Night Weather - Raining: ${this.state.isRaining}`);
+                   // console.log(`Instance ${this.state.instanceId}: Entering Night Weather - Raining: ${this.state.isRaining}`); // Reduce noise
                 } else {
                      // console.log(`Instance ${this.state.instanceId}: Still Night, weather unchanged.`); // Optional log
                 }
@@ -196,12 +196,62 @@ export class GameInstance {
    stopCountdown() { /* ... as before ... */ if (this.state.countdownIntervalId) { clearInterval(this.state.countdownIntervalId); this.state.countdownIntervalId = null; } }
 
    // --- Start Game Helper (methods as before) ---
-   _prepareAndStartGame() { /* ... as before ... */ this.stopCountdown(); if (this.state.gamePhase === 'playing') { this.startSimulationLoop(); return; } console.log(`GameInstance ${this.state.instanceId}: Preparing players and starting game...`); this.setGamePhase('playing'); let playersMarkedAliveCount = 0; this.state.players.forEach(playerState => { if (playerState.isSpectator || playerState.isAI) { playerState.isAlive = false; return; } if (!playerState.hasChosenSpawn) { this._assignDefaultSpawn(playerState); } else if (!playerState.spawnPoint) { this._assignDefaultSpawn(playerState); } if (!playerState.isAlive) { playerState.isAlive = true; playersMarkedAliveCount++; } else { playersMarkedAliveCount++; } playerState.growthAppliedThisCycle = false; playerState.foliarUptakeAppliedThisNight = false; }); if (playersMarkedAliveCount === 0 && this.state.players.size > 0) { this.resetGame(); this.broadcastState(); return; } console.log(`GameInstance ${this.state.instanceId}: Marked ${playersMarkedAliveCount} players alive.`); this.broadcastState(); this.startSimulationLoop(); }
+   _prepareAndStartGame() {
+       this.stopCountdown();
+       if (this.state.gamePhase === 'playing') {
+           // this.startSimulationLoop(); // No need to restart if already playing
+           return;
+       }
+       console.log(`GameInstance ${this.state.instanceId}: Preparing players and starting game...`);
+       this.setGamePhase('playing');
+       let playersMarkedAliveCount = 0;
+       this.state.players.forEach(playerState => {
+           // +++ Add Log +++
+           console.log(`_prepareAndStartGame: Checking player ${playerState.id}, isSpectator=${playerState.isSpectator}, isAI=${playerState.isAI}, Name=${playerState.playerName}`);
+           // *** Also check admin name prefix ***
+           if (playerState.isSpectator || playerState.isAI || playerState.playerName.startsWith('ADMIN_')) {
+               playerState.isAlive = false; // Ensure remains false
+               // +++ Add Log +++
+               console.log(`_prepareAndStartGame: Skipping spectator/AI/Admin ${playerState.id}, ensuring isAlive=false.`);
+               return; // Skip spectator/AI/Admin
+           }
+           // Assign spawn if needed
+           if (!playerState.hasChosenSpawn) {
+                console.log(`_prepareAndStartGame: Assigning default spawn for ${playerState.id}`);
+                this._assignDefaultSpawn(playerState);
+           } else if (!playerState.spawnPoint || typeof playerState.spawnPoint.x !== 'number') { // Added check for valid spawn point object
+                console.log(`_prepareAndStartGame: Player ${playerState.id} had chosen spawn but point invalid, assigning default.`);
+                this._assignDefaultSpawn(playerState);
+           }
+           // Mark as alive if not already
+           if (!playerState.isAlive) {
+                playerState.isAlive = true; // Mark non-spectator as alive
+                // +++ Add Log +++
+                console.log(`_prepareAndStartGame: Setting player ${playerState.id} to isAlive=true.`);
+                playersMarkedAliveCount++;
+           } else {
+                playersMarkedAliveCount++; // Already alive (e.g. reconnect?)
+                console.log(`_prepareAndStartGame: Player ${playerState.id} was already alive.`);
+           }
+           playerState.growthAppliedThisCycle = false;
+           playerState.foliarUptakeAppliedThisNight = false;
+       });
+       // If only spectators/admins remain after checks, reset
+       if (playersMarkedAliveCount === 0 && this.state.players.size > 0) {
+           console.log(`_prepareAndStartGame: No active players found after checks, resetting to lobby.`);
+           this.resetGame(); // Reset to lobby
+           this.broadcastState();
+           return; // Don't start sim loop
+       }
+       console.log(`GameInstance ${this.state.instanceId}: Marked ${playersMarkedAliveCount} players alive.`);
+       this.broadcastState();
+       this.startSimulationLoop();
+   }
    _assignDefaultSpawn(playerState) { /* ... as before ... */ const nonSpectatorPlayers = this.getNonSpectatorPlayers(); const index = nonSpectatorPlayers.findIndex(ap => ap.id === playerState.id); const activePlayerCount = nonSpectatorPlayers.length || 1; const angle = (index / activePlayerCount) * Math.PI * 2 + Math.random()*0.1; const radius = 5 + Math.random() * 5; const baseHeight = ISLAND_LEVEL; playerState.spawnPoint = { x: radius * Math.cos(angle), y: baseHeight, z: radius * Math.sin(angle) }; playerState.hasChosenSpawn = true; }
 
    // --- Reset & End Game (methods as before) ---
-   resetGame() { /* ... as before ... */ console.log(`GameInstance ${this.state.instanceId}: Resetting game...`); this.stopSimulationLoop(); this.stopCountdown(); Object.assign(this.state, { day: 1, timeInCycle: 0.0, currentPeriodIndex: -1, isNight: false, currentLightMultiplier: LIGHT_MULT_SUNNY, currentDroughtFactor: DROUGHT_MULT_BASE, isRaining: false, gamePhase: 'lobby', countdownTimer: null, allowPlayerCountdownStart: true }); this.state.players.forEach(p => { const initialLA = INITIAL_LEAF_AREA; const maxHydraulic = BASE_HYDRAULIC + HYDRAULIC_SCALE_PER_LA * initialLA; p.isAlive = false; p.hasChosenSpawn = false; p.spawnPoint = { x: 0, y: ISLAND_LEVEL, z: 0 }; p.carbonStorage = INITIAL_CARBON; p.hydraulicSafety = Math.min(INITIAL_HYDRAULICS, maxHydraulic); p.maxHydraulic = maxHydraulic; p.currentLA = initialLA; p.effectiveLA = initialLA; p.trunkHeight = INITIAL_TRUNK_HEIGHT; p.trunkWidth = Math.sqrt(initialLA * k_TA_LA_RATIO); p.trunkDepth = p.trunkWidth; p.seedCount = 0; p.damagedLAPercentage = 0; p.stomatalConductance = 0.5; p.lastSavingsPercent = 50; p.lastGrowthRatioPercent = 50; p.foliarUptakeAppliedThisNight = false; p.growthAppliedThisCycle = false; }); console.log(`GameInstance ${this.state.instanceId}: Reset complete. Phase: ${this.state.gamePhase}`); }
-   endGame(reason = "Game ended.") { /* ... as before ... */ console.log(`GameInstance ${this.state.instanceId}: endGame called. Reason: ${reason}`); this.stopSimulationLoop(); this.stopCountdown(); this.setGamePhase('ended'); let winnerId = null; let maxSeeds = -1; this.state.players.forEach(p => { if (!p.isSpectator && p.seedCount > maxSeeds) { maxSeeds = p.seedCount; winnerId = p.id; } }); console.log(`GameInstance ${this.state.instanceId}: Winner: ${winnerId || 'None'} with ${maxSeeds} seeds.`); this.io.to(this.state.roomId).emit('gameOver', { reason: reason, winnerId: winnerId }); this.broadcastState(); setTimeout(() => { this.resetGame(); this.broadcastState(); }, 2000); }
+   resetGame() { /* ... as before ... */ console.log(`GameInstance ${this.state.instanceId}: Resetting game...`); this.stopSimulationLoop(); this.stopCountdown(); Object.assign(this.state, { day: 1, timeInCycle: 0.0, currentPeriodIndex: -1, isNight: false, currentLightMultiplier: LIGHT_MULT_SUNNY, currentDroughtFactor: DROUGHT_MULT_BASE, isRaining: false, gamePhase: 'lobby', countdownTimer: null, allowPlayerCountdownStart: true }); this.state.players.forEach(p => { const initialLA = INITIAL_LEAF_AREA; const maxHydraulic = BASE_HYDRAULIC + HYDRAULIC_SCALE_PER_LA * initialLA; p.isAlive = false; p.hasChosenSpawn = false; p.spawnPoint = { x: 0, y: ISLAND_LEVEL, z: 0 }; p.carbonStorage = INITIAL_CARBON; p.hydraulicSafety = Math.min(INITIAL_HYDRAULICS, maxHydraulic); p.maxHydraulic = maxHydraulic; p.currentLA = initialLA; p.effectiveLA = initialLA; p.trunkHeight = INITIAL_TRUNK_HEIGHT; p.trunkWidth = Math.sqrt(initialLA * k_TA_LA_RATIO); p.trunkDepth = p.trunkWidth; p.seedCount = 0; p.damagedLAPercentage = 0; p.stomatalConductance = 0.5; p.lastSavingsPercent = 50; p.lastGrowthRatioPercent = 50; p.foliarUptakeAppliedThisNight = false; p.growthAppliedThisCycle = false; if (p.isSpectator || p.playerName.startsWith('ADMIN_')) { /* Optionally remove spectators/admins on reset? Or keep them? Keep for now.*/ } }); console.log(`GameInstance ${this.state.instanceId}: Reset complete. Phase: ${this.state.gamePhase}`); }
+   endGame(reason = "Game ended.") { /* ... as before ... */ console.log(`GameInstance ${this.state.instanceId}: endGame called. Reason: ${reason}`); this.stopSimulationLoop(); this.stopCountdown(); this.setGamePhase('ended'); let winnerId = null; let maxSeeds = -1; this.state.players.forEach(p => { if (!p.isSpectator && !p.playerName.startsWith('ADMIN_') && p.seedCount > maxSeeds) { maxSeeds = p.seedCount; winnerId = p.id; } }); console.log(`GameInstance ${this.state.instanceId}: Winner: ${winnerId || 'None'} with ${maxSeeds} seeds.`); this.io.to(this.state.roomId).emit('gameOver', { reason: reason, winnerId: winnerId }); this.broadcastState(); setTimeout(() => { this.resetGame(); this.broadcastState(); }, 2000); }
 
    // --- Broadcasting (method as before) ---
    broadcastState() { const snapshot = this.getSnapshot(); this.io.to(this.state.roomId).emit('gameStateUpdate', snapshot); }

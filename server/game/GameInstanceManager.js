@@ -82,17 +82,21 @@ class GameInstanceManager {
             if (playerState) {
                 // *** Explicitly set spectator status ***
                 playerState.isSpectator = true;
-                playerState.isAlive = false;
-                if (isAdmin) playerState.playerName = `ADMIN_${socket.id.substring(0, 4)}`;
+                playerState.isAlive = false; // Ensure they start dead
+                if (isAdmin) playerState.playerName = `ADMIN_${socket.id.substring(0, 4)}`; // Keep admin name distinct
 
-                // +++ Add Log Confirmation +++
-                console.log(`InstanceMgr: Player state for ${socket.id} SET: isSpectator=${playerState.isSpectator}, isAlive=${playerState.isAlive}`);
+                // +++ Add Log Confirmation BEFORE mapping/snapshot +++
+                console.log(`InstanceMgr: Player state for ${socket.id} SET: isSpectator=${playerState.isSpectator}, isAlive=${playerState.isAlive}, Name=${playerState.playerName}`);
 
                 this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId); // Map player to instance AFTER adding to instance state
 
-                 // Send current state of the multiplayer instance
-                 console.log(`InstanceMgr: Sending initial state snapshot to admin/spectator ${socket.id}`);
-                 socket.emit('gameStateUpdate', targetInstance.getSnapshot());
+                 // +++ Add Log BEFORE snapshot +++
+                 const snapshotData = targetInstance.getSnapshot();
+                 const adminDataInSnapshot = snapshotData.players[socket.id];
+                 console.log(`InstanceMgr: Sending initial snapshot. Admin (${socket.id}) data in snapshot: isSpectator=${adminDataInSnapshot?.isSpectator}, isAlive=${adminDataInSnapshot?.isAlive}`);
+                 // +++++++++++++++++++++++++++++++++
+
+                 socket.emit('gameStateUpdate', snapshotData); // Send current state of the multiplayer instance
                  targetInstance.broadcastState(); // Inform others in the room
             } else {
                  console.error(`InstanceMgr: Failed to add admin/spectator ${socket.id} to multiplayer instance.`);

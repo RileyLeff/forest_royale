@@ -1,5 +1,3 @@
-// client/admin.js - Logic for the Admin Panel
-
 import * as THREE from 'three';
 // Import necessary modules (paths relative to client/)
 import { gameState } from './gameState.js'; // Use gameState for caching server state
@@ -9,20 +7,21 @@ import { createOrUpdateTree, removeTree, disposeAllTrees } from './tree.js'; // 
 import { uiElements, cacheDOMElements } from './ui/elements.js'; // Cache admin page UI elements & uiElements ref
 import { updateUI as updateAdminUI } from './ui/updateAdmin.js'; // Use a SEPARATE admin UI update function
 import { showMessage, clearMessage, attachServerMessageListener } from './ui/messageHandler.js'; // Use message handler
-import { hideGameOverModal } from './ui/gameOver.js'; // Import hide function
+import { hideGameOverModal, showGameOverUI } from './ui/gameOver.js'; // Import hide/show functions
 import { updateEnvironmentVisuals, updateRain, setWeatherTargets, startRain, stopRain } from './environment.js';
 
 // --- Global Variables ---
 let clock = new THREE.Clock();
 let animationFrameId = null;
-let socket = null;
+let socket = null; // Keep socket global within this module's scope
 let adminPassword = null; // Store password retrieved from URL
 let isAdminAuthenticated = false; // Track websocket auth status
+let targetInstanceId = null; // <<< Store the ID of the instance admin should observe
+
 
 // --- Initialization Function ---
 function initializeAdminApp() {
     console.log("Initializing Admin Panel Client...");
-
     // --- Get Admin Password from URL ---
     const urlParams = new URLSearchParams(window.location.search);
     adminPassword = urlParams.get('pw');
@@ -31,7 +30,6 @@ function initializeAdminApp() {
         document.body.innerHTML = '<h1>Access Denied: Admin password missing from URL (?pw=...)</h1>';
         return; // Stop execution if no password
     }
-    // Attempt to remove password from URL bar history for basic security
     try { history.replaceState(null, '', window.location.pathname); } catch (e) { console.warn("Could not clear URL history."); }
 
 
@@ -58,11 +56,14 @@ function initializeAdminApp() {
     }
 
     console.log("Admin: Attempting to connect to server...");
+    console.log("[admin.js] About to call io() constructor..."); // <<< ADD LOG
     socket = io({
          reconnection: true,
          reconnectionAttempts: 3, // Less aggressive for admin?
          reconnectionDelay: 2000,
     }); // Define socket
+    console.log("[admin.js] io() constructor called. Socket ID (initially):", socket?.id || 'N/A'); // <<< ADD LOG
+
     setupAdminSocketListeners(); // Setup listeners AFTER socket defined
     setupAdminButtonListeners(); // Setup listeners for admin buttons
     updateAdminUI(); // Initial UI render
@@ -86,140 +87,116 @@ function setupAdminSocketListeners() {
               showMessage(`Authentication Error! Refresh.`, 'error');
               socket.disconnect();
         }
-        // Clear password variable immediately after sending
-        adminPassword = null;
+        adminPassword = null; // Clear password variable immediately after sending
     });
 
-    // Listen for authentication confirmation/rejection
     socket.on('adminAuthResult', (result) => {
         if (result.success) {
-            isAdminAuthenticated = true;
-            console.log("Admin: WebSocket Authentication successful.");
-            showMessage(`Admin Authenticated`, 'success');
-             if (uiElements.adminControls) { // Show controls on successful auth
-                 uiElements.adminControls.style.display = 'flex';
-             } else {
-                  console.warn("Admin controls panel not found after auth success.");
-             }
-             // Attach server message listener now that socket is ready
-             attachServerMessageListener(); // Call the exported function
-
+            isAdminAuthenticated = true; console.log("Admin: WebSocket Authentication successful."); showMessage(`Admin Authenticated`, 'success'); if (uiElements.adminControls) { uiElements.adminControls.style.display = 'flex'; } attachServerMessageListener(); // Attach listener AFTER auth success
         } else {
-            isAdminAuthenticated = false;
-            console.error("Admin: WebSocket Authentication Failed!", result.reason);
-            showMessage(`Admin Auth Failed: ${result.reason || 'Invalid Password'}`, 'error');
-             if (uiElements.adminControls) { // Hide controls on failed auth
-                 uiElements.adminControls.style.display = 'none';
-             }
-            // Disconnect on failed auth
-            if(socket) socket.disconnect();
+            isAdminAuthenticated = false; console.error("Admin: WebSocket Authentication Failed!", result.reason); showMessage(`Admin Auth Failed: ${result.reason || 'Invalid Password'}`, 'error'); if (uiElements.adminControls) { uiElements.adminControls.style.display = 'none'; } if(socket) socket.disconnect();
         }
     });
 
-    socket.on('disconnect', (reason) => {
-         console.log(`Admin: Disconnected: ${reason}`); showMessage("Disconnected!", "error");
-         isAdminAuthenticated = false; gameState.myId = null; gameState.initialStateReceived = false;
-         if (animationFrameId !== null) cancelAnimationFrame(animationFrameId); animationFrameId = null;
-         if (uiElements.adminControls) uiElements.adminControls.style.display = 'none'; // Hide controls
-         disposeAllTrees();
-    });
+    socket.on('disconnect', (reason) => { console.log(`Admin: Disconnected: ${reason}`); showMessage("Disconnected!", "error"); isAdminAuthenticated = false; gameState.myId = null; gameState.initialStateReceived = false; targetInstanceId = null; /* Clear target instance */ if (animationFrameId !== null) cancelAnimationFrame(animationFrameId); animationFrameId = null; if (uiElements.adminControls) uiElements.adminControls.style.display = 'none'; disposeAllTrees(); });
     socket.on('connect_error', (error) => { console.error('Admin Conn Error:', error); showMessage("Connection failed!", "error"); });
 
     // --- Game State Update Handler (Spectator View) ---
     socket.on('gameStateUpdate', (serverState) => {
-         const previousPhase = gameState.gamePhase;
-         const playersFromServer = serverState.players || {}; // Ensure players object exists
-         const myServerData = playersFromServer[gameState.myId]; // Get data for this admin client
+        if (!gameState.myId) { console.log("Admin GS Update: Skipping update, myId not set yet."); return; } // Need own ID first
 
-         // +++ Log Received Spectator Status +++
-         console.log(`Admin GS Update: Received state. My server data:`, myServerData);
-         if (myServerData) {
-             console.log(`Admin GS Update: My isSpectator status from server = ${myServerData.isSpectator}`);
-         } else if (gameState.myId) {
-              console.warn(`Admin GS Update: Did not find own ID (${gameState.myId}) in received players object.`);
+        // +++ Check if this update is from the correct instance +++
+         if (!targetInstanceId) {
+             if (serverState.instanceId) {
+                 // Check if this instance contains our admin ID
+                 if(serverState.players && serverState.players[gameState.myId]){
+                      console.log(`Admin GS Update: Received first valid state from Instance ${serverState.instanceId}. Setting as target.`);
+                      targetInstanceId = serverState.instanceId;
+                 } else {
+                      console.warn(`Admin GS Update: Received initial state from Instance ${serverState.instanceId}, but it doesn't contain my ID (${gameState.myId}). Waiting for correct instance state.`);
+                      return; // Ignore this update for now.
+                 }
+             } else {
+                  console.warn("Admin GS Update: Received state without instanceId. Cannot determine target. Ignoring update.");
+                  return;
+             }
+         } else if (serverState.instanceId !== targetInstanceId) {
+             // console.warn(`Admin GS Update: Ignoring state from wrong instance ${serverState.instanceId} (Target: ${targetInstanceId}).`); // Reduce noise
+             return; // Ignore updates from other instances
          }
+         // +++ If we reach here, the update is for the correct instance +++
 
-         // Update core state properties
+         const previousPhase = gameState.gamePhase;
+         const playersFromServer = serverState.players || {};
+         const myServerData = playersFromServer[gameState.myId]; // <<< Get my data
+
+         // +++ Log Received Admin State +++
+         if (myServerData) {
+              console.log(`Admin GS Update (${targetInstanceId}): Received state for self (${gameState.myId}): isSpectator=${myServerData.isSpectator}, isAlive=${myServerData.isAlive}, Name=${myServerData.playerName}`);
+         } else {
+              // This can happen briefly if the admin disconnects and reconnects before the server removes the old player state
+              console.warn(`Admin GS Update (${targetInstanceId}): Did not receive state for self (${gameState.myId}) in this update.`);
+         }
+         // ++++++++++++++++++++++++++++++++
+
+         // Update core state properties (including gameState.isSpectator)
          Object.assign(gameState, {
-             day: serverState.day, timeInCycle: serverState.timeInCycle, currentPeriodIndex: serverState.currentPeriodIndex,
-             isNight: serverState.isNight, currentLightMultiplier: serverState.currentLightMultiplier, currentDroughtFactor: serverState.currentDroughtFactor,
-             isRaining: serverState.isRaining, gamePhase: serverState.gamePhase, countdownTimer: serverState.countdownTimer,
-             serverTime: serverState.serverTime,
-             players: playersFromServer, // Update player cache
-             allowPlayerCountdownStart: serverState.allowPlayerCountdownStart,
+             day: serverState.day, timeInCycle: serverState.timeInCycle, currentPeriodIndex: serverState.currentPeriodIndex, isNight: serverState.isNight, currentLightMultiplier: serverState.currentLightMultiplier, currentDroughtFactor: serverState.currentDroughtFactor, isRaining: serverState.isRaining, gamePhase: serverState.gamePhase, countdownTimer: serverState.countdownTimer, serverTime: serverState.serverTime, players: playersFromServer, allowPlayerCountdownStart: serverState.allowPlayerCountdownStart,
          });
+         // *** Force isSpectator based on received data for self, fallback to true if self not found (shouldn't happen after target set) ***
+         gameState.isSpectator = myServerData ? myServerData.isSpectator : true;
 
-         // +++ Force local spectator status based on received data or default to true +++
-         // Ensure admin client always considers itself a spectator locally
-         gameState.isSpectator = true; // Keep this definitively true for admin client
-         console.log(`Admin GS Update: Local gameState.isSpectator forced to = ${gameState.isSpectator}`);
-         // We still log the server status above for debugging, but the admin client UI/logic should rely on its forced spectator status.
-
-         // --- First time setup ---
-         if (!gameState.initialStateReceived && gameState.myId /*&& myServerData - Don't require server data for first admin setup*/) {
-             console.log("Admin: First gameStateUpdate processed (or initial connection established).");
-             if(controls) { controls.target.set(0, 5, 0); controls.update(); } // General island view
+         if (!gameState.initialStateReceived && myServerData) { // Ensure myServerData exists for first setup
+             console.log(`Admin: First valid state for target instance ${targetInstanceId} processed.`);
+             if(controls) { controls.target.set(0, 5, 0); camera.position.set(15, 20, 15); controls.update(); } // Set overview camera
              setWeatherTargets(gameState.isNight, gameState.currentLightMultiplier < Config.LIGHT_MULT_SUNNY - 0.1, gameState.isRaining);
              updateEnvironmentVisuals(1000); if(gameState.isRaining) startRain(); else stopRain();
              gameState.initialStateReceived = true; startGameLoop();
              setTimeout(() => showMessage(`Game state: ${gameState.gamePhase}`, 'info'), 100);
-         }
-         // --- Phase change updates ---
-         else if (gameState.gamePhase !== previousPhase) {
-             console.log(`Admin phase updated to: ${gameState.gamePhase}`);
-             showMessage(`Game state: ${gameState.gamePhase}`, 'info');
+         } else if (gameState.gamePhase !== previousPhase) {
+             console.log(`Admin phase updated to: ${gameState.gamePhase}`); showMessage(`Game state: ${gameState.gamePhase}`, 'info');
              if(gameState.gamePhase !== 'ended' && uiElements.gameOverModal && !uiElements.gameOverModal.classList.contains('hidden')) { hideGameOverModal(); }
          }
 
          /* Update Environment */ const wasRaining = scene?.getObjectByName("rain")?.visible ?? false; setWeatherTargets(gameState.isNight, gameState.currentLightMultiplier < Config.LIGHT_MULT_SUNNY - 0.1, gameState.isRaining); if (gameState.isRaining && !wasRaining) startRain(); else if (!gameState.isRaining && wasRaining) stopRain();
 
          /* Update Trees */
+         // console.log(`--- Admin Tree Update Loop START (Instance: ${targetInstanceId}) ---`); // Reduce noise
          const receivedPlayerIds = new Set(Object.keys(playersFromServer));
          for (const playerId in playersFromServer) {
              const playerData = playersFromServer[playerId];
-             // *** Use the player's spectator flag from the received data ***
-             if (playerData.isSpectator) {
-                 removeTree(playerId); // Remove tree for ANY spectator
+             // *** Determine spectator status based purely on THIS update's data for robustness ***
+             // Use startsWith('ADMIN_') as the primary check for admins
+             const isPlayerSpectatorInThisUpdate = playerData.isSpectator || playerData.playerName.startsWith('ADMIN_');
+             // console.log(`Admin Tree Update: Processing P:[${playerId.substring(0,5)}] Is Spectator Flag (this update): ${isPlayerSpectatorInThisUpdate}`); // Reduce noise
+
+             if (isPlayerSpectatorInThisUpdate) {
+                 // console.log(`Admin Tree Update: Calling removeTree for spectator/admin ${playerId}`); // Reduce noise
+                 removeTree(playerId); // Ensure admins/spectators don't have trees
              } else {
-                 createOrUpdateTree(playerId, playerData); // Render non-spectators
+                 // console.log(`Admin Tree Update: Calling createOrUpdateTree for non-spectator ${playerId}`); // Reduce noise
+                 createOrUpdateTree(playerId, playerData);
              }
          }
-         // Remove trees for players no longer in the state
-         gameState.playerTrees.forEach((_, playerId) => {
-             if (!receivedPlayerIds.has(playerId)) removeTree(playerId);
-         });
+         // Remove trees for players who are no longer in the state update
+         gameState.playerTrees.forEach((_, playerId) => { if (!receivedPlayerIds.has(playerId)) { removeTree(playerId); } });
+         // console.log("--- Admin Tree Update Loop END ---"); // Reduce noise
 
-         /* Update Camera Target */ if (controls) controls.target.lerp(new THREE.Vector3(0, 5, 0), 0.05); // Keep overview
+         /* Update Camera Target */ if (controls) controls.target.lerp(new THREE.Vector3(0, 5, 0), 0.05); // Keep overview target
+
+         updateAdminUI(); // Update non-tree UI
 
      }); // End gameStateUpdate
 
-    socket.on('playerDisconnected', (playerId) => { console.log(`Admin View: Player ${playerId} disconnected.`); removeTree(playerId); });
-
-    // Use simplified game over display for admin
+    socket.on('playerDisconnected', (playerId) => { console.log(`Admin View: Player ${playerId} disconnected.`); removeTree(playerId); /* UI updates on next gameStateUpdate */ });
     socket.on('gameOver', (data) => {
          console.log("Admin View: Game Over event received:", data);
-         gameState.gameOver = true; // Set local flag
-         gameState.gameOverReason = data.reason || "Game Ended";
-         gameState.winnerId = data.winnerId;
-
-         // Show modal, but maybe don't stop loop?
-         if (uiElements.gameOverModal && uiElements.adminCloseModalButton) { // Check modal and button exist
-            if(uiElements.gameOverReasonUI) uiElements.gameOverReasonUI.textContent = `Game Ended: ${gameState.gameOverReason}`;
-            if(uiElements.finalDayUI && uiElements.finalDayUI.parentElement) uiElements.finalDayUI.parentElement.style.display = 'none';
-            if(uiElements.finalSeedsUI && uiElements.finalSeedsUI.parentElement) uiElements.finalSeedsUI.parentElement.style.display = 'none';
-            if(uiElements.restartButton) uiElements.restartButton.style.display = 'none';
-            uiElements.adminCloseModalButton.style.display = 'inline-block'; // Ensure admin close is visible
-            uiElements.gameOverModal.classList.remove('hidden');
-         } else { console.warn("Cannot show admin game over modal - elements missing."); }
+         gameState.gameOver = true; gameState.gameOverReason = data.reason || "Game Ended"; gameState.winnerId = data.winnerId;
+         showGameOverUI(); // Use the shared function to show/configure the modal
     });
+    socket.on('serverMessage', (data) => { console.log("Admin received server message:", data); showMessage(data.text, data.type || 'info'); });
 
-     // Listen for server messages (e.g., admin command confirmations)
-     socket.on('serverMessage', (data) => {
-         console.log("Admin received server message:", data);
-         showMessage(data.text, data.type || 'info');
-     });
-
-} // End of setupSocketListeners
+} // End of setupAdminSocketListeners
 
 
 // --- Setup Listeners for Admin Buttons ---
@@ -230,7 +207,7 @@ function setupAdminButtonListeners() {
     const resetCountdownBtn = document.getElementById('admin-reset-countdown');
     const closeModalBtn = uiElements.adminCloseModalButton; // Use cached element
 
-    if (uiElements.adminControls) uiElements.adminControls.style.display = 'none';
+    if (uiElements.adminControls) uiElements.adminControls.style.display = 'none'; // Start hidden until authenticated
 
     function emitAdminCommand(command) {
         if (socket && socket.connected && isAdminAuthenticated) {
@@ -242,13 +219,42 @@ function setupAdminButtonListeners() {
     if (forceStartBtn) forceStartBtn.addEventListener('click', () => emitAdminCommand('adminForceStart')); else console.warn("Admin button 'admin-force-start' not found.");
     if (forceEndBtn) forceEndBtn.addEventListener('click', () => emitAdminCommand('adminForceEnd')); else console.warn("Admin button 'admin-force-end' not found.");
     if (resetCountdownBtn) resetCountdownBtn.addEventListener('click', () => emitAdminCommand('adminResetCountdown')); else console.warn("Admin button 'admin-reset-countdown' not found.");
-    if (closeModalBtn) { closeModalBtn.removeEventListener('click', hideGameOverModal); closeModalBtn.addEventListener('click', hideGameOverModal); } else { console.warn("Admin close modal button 'admin-close-modal' not found."); }
+
+    // Game over modal close button listener is now handled within showGameOverUI
+    // if (closeModalBtn) { closeModalBtn.removeEventListener('click', hideGameOverModal); closeModalBtn.addEventListener('click', hideGameOverModal); } else { console.warn("Admin close modal button 'admin-close-modal' not found."); }
 }
 
 // --- Admin Rendering Loop ---
-function gameLoop() { animationFrameId = requestAnimationFrame(gameLoop); const deltaTime = clock.getDelta(); updateEnvironmentVisuals(deltaTime); updateRain(deltaTime); updateAdminUI(); if (controls) controls.update(); if (renderer && scene && camera) renderer.render(scene, camera); else { console.error("Admin Render components missing!"); stopGameLoop(); } }
-function startGameLoop() { if (animationFrameId !== null) return; console.log("Admin: Starting render loop."); clock = new THREE.Clock(); gameLoop(); }
-function stopGameLoop() { if (animationFrameId !== null) { cancelAnimationFrame(animationFrameId); animationFrameId = null; console.log("Admin: Stopped render loop."); } }
+function gameLoop() {
+    animationFrameId = requestAnimationFrame(gameLoop);
+    const deltaTime = clock.getDelta();
+    updateEnvironmentVisuals(deltaTime);
+    updateRain(deltaTime);
+    updateAdminUI(); // Use the dedicated admin UI updater
+    if (controls) controls.update();
+    if (renderer && scene && camera) renderer.render(scene, camera);
+    else { console.error("Admin Render components missing!"); stopGameLoop(); }
+}
+function startGameLoop() {
+    if (animationFrameId !== null) return;
+    console.log("Admin: Starting render loop.");
+    clock = new THREE.Clock(); // Reset clock
+    gameLoop();
+}
+function stopGameLoop() {
+    if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+        console.log("Admin: Stopped render loop.");
+    }
+}
 
 // --- Start Admin Application ---
-document.addEventListener('DOMContentLoaded', initializeAdminApp);
+// Add conditional check similar to main.js for safety
+const adminScriptUrl = new URL('/admin.js', window.location.origin).href;
+if (import.meta.url === adminScriptUrl) {
+     console.log("admin.js detected as entry point script. Adding DOMContentLoaded listener.");
+     document.addEventListener('DOMContentLoaded', initializeAdminApp);
+} else {
+     console.log(`admin.js imported as dependency (URL: ${import.meta.url}), skipping initializeAdminApp listener.`);
+}
