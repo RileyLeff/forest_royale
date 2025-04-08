@@ -281,136 +281,132 @@ input[type="color"] {
 /* Style admin close button differently if needed */
 #admin-close-modal { background-color: #8b4513; }
 #admin-close-modal:hover { background-color: #a0522d; }
+/* client/style.css */
+
+/* ... (Your existing base styles) ... */
 
 /* client/style.css */
 
-/* === Add this whole section at the END of your existing CSS === */
+/* ... (Your existing base styles) ... */
+
+/* Add some base padding-top to the info panel to make space */
+#top-left-info {
+    /* Adjust existing padding or add padding-top */
+    padding-top: 40px; /* Example: Creates 40px space at the top INSIDE the panel */
+    position: relative; /* Needed for potential absolute positioning inside later if desired, but not strictly for this approach */
+}
+
+/* Base style for the back button - positioned relative to viewport */
+.back-button {
+    position: absolute;
+    top: 10px; /* Align with top edge of info panel */
+    left: 10px; /* Align with left edge of info panel */
+    z-index: 20; /* Above other panels */
+    box-sizing: border-box; /* Include padding/border in width calculation */
+    width: 200px; /* Default width (matches default leaderboard min-width) */
+    padding: 6px 12px;
+    font-size: 0.9em; /* Match panel text size slightly better */
+    background-color: rgba(80, 80, 80, 0.7);
+    color: #eee;
+    border: 1px solid #666;
+    border-radius: 4px;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: background-color 0.2s;
+    text-align: center; /* Center text within the button */
+    text-decoration: none;
+    font-family: sans-serif;
+}
+.back-button:hover {
+    background-color: rgba(110, 110, 110, 0.8);
+    border-color: #888;
+}
+
 
 /* === Responsive Design === */
 
-/* Target screens smaller than, say, 768px (tablets/large phones) */
+/* Target screens smaller than, say, 768px */
 @media (max-width: 768px) {
     .ui-panel {
-        /* Reduce padding slightly */
         padding: 8px;
-        /* Slightly smaller base font */
         font-size: 13px;
-        /* Allow panels to potentially take more width if needed */
-        min-width: 0; /* Remove fixed min-widths */
+        min-width: 0;
     }
 
-    /* Reduce size/positioning of corners */
     #top-left-info {
         top: 5px;
         left: 5px;
-        /* Maybe make it slightly narrower if leaderboard is wide */
         max-width: 170px;
+        padding-top: 35px; /* Adjust space for smaller button */
     }
     #top-right-leaderboard {
         top: 5px;
         right: 5px;
-        max-width: 160px; /* Narrower leaderboard */
-        max-height: 150px; /* Shorter leaderboard */
+        max-width: 160px; /* LEADERBOARD WIDTH */
+        max-height: 150px;
     }
-    #bottom-left-status {
-        bottom: 5px;
-        left: 5px;
-        width: 180px; /* Narrower status */
-    }
-    #control-panel-right {
-        bottom: 5px;
-        right: 5px;
-        width: 180px; /* Narrower controls */
-        padding: 10px 8px; /* Tighter padding */
-        gap: 8px; /* Less gap */
-    }
-    .control-row label {
-        font-size: 0.8em; /* Smaller labels */
-    }
-    .control-row span {
-        font-size: 0.8em; /* Smaller percentages */
-    }
+    #bottom-left-status { bottom: 5px; left: 5px; width: 180px; }
+    #control-panel-right { bottom: 5px; right: 5px; width: 180px; padding: 10px 8px; gap: 8px; }
+    .control-row label { font-size: 0.8em; }
+    .control-row span { font-size: 0.8em; }
+
+    /* --- Back Button - Above Top Left, Match Leaderboard Width --- */
     .back-button {
-        /* Move back button maybe below top-left? */
-        top: auto; /* Unset top */
-        bottom: 5px; /* Align with bottom panels */
-        /* Position it next to bottom-left, needs adjustment based on status width */
-        left: 190px; /* Example: 180px width + 10px gap */
-        padding: 5px 8px;
-        font-size: 0.8em;
+        top: 5px; /* Align top edge */
+        left: 5px; /* Align left edge */
+        width: 160px; /* MATCH LEADERBOARD WIDTH */
+        padding: 5px 10px;
+        font-size: 0.85em;
     }
+    /* --- End Back Button --- */
 
     /* Adjust font sizes within panels */
-    .ui-panel p, .ui-panel div, .ui-panel label, .ui-panel span, .ui-panel li {
-        font-size: 0.85em; /* Smaller text */
-        line-height: 1.3;
-    }
-    #top-right-leaderboard ul {
-        font-size: 0.8em; /* Even smaller list text */
-    }
-    #top-right-leaderboard li {
-        padding: 2px 4px;
-    }
-     #bottom-left-status label {
-        font-size: 0.8em;
-    }
-     #bottom-left-status span#carbon-value,
-     #bottom-left-status span#hydraulic-value {
-         font-size: 0.7em;
-         top: 16px; /* Adjust vertical position slightly */
-     }
+    .ui-panel p, .ui-panel div, .ui-panel label, .ui-panel span, .ui-panel li { font-size: 0.85em; line-height: 1.3; }
+    #top-right-leaderboard ul { font-size: 0.8em; }
+    #top-right-leaderboard li { padding: 2px 4px; }
+    #bottom-left-status label { font-size: 0.8em; }
+    #bottom-left-status span#carbon-value,
+    #bottom-left-status span#hydraulic-value { font-size: 0.7em; top: 16px; }
 
     /* Modal adjustments */
-    .modal {
-        padding: 20px;
-        min-width: 280px; /* Allow slightly smaller */
-    }
+    .modal { padding: 20px; min-width: 280px; }
     .modal h2 { font-size: 1.2em; }
     .modal p { font-size: 0.9em; }
     .modal button { font-size: 0.9em; padding: 8px 15px;}
-
 }
+
 
 /* Target even smaller screens (most phones) */
 @media (max-width: 480px) {
-    .ui-panel {
-        font-size: 11px; /* Even smaller base */
-        border-radius: 4px;
-    }
+    .ui-panel { font-size: 11px; border-radius: 4px; }
 
     #top-left-info {
-        max-width: 140px; /* Further restrict width */
+        max-width: 140px;
+        padding-top: 30px; /* Adjust space */
     }
     #top-right-leaderboard {
-        max-width: 130px; /* Further restrict width */
-        max-height: 120px; /* Further restrict height */
+        max-width: 130px; /* LEADERBOARD WIDTH */
+        max-height: 120px;
     }
-    #bottom-left-status {
-         width: 150px; /* Further restrict width */
-         /* Optional: Stack status bars if needed */
-         /* display: flex; flex-direction: column; gap: 5px; */
-    }
-    #control-panel-right {
-         width: 150px; /* Further restrict width */
-         gap: 6px;
-    }
-     .bar-outer { height: 12px; } /* Slimmer bars */
-     #bottom-left-status span#carbon-value,
-     #bottom-left-status span#hydraulic-value {
-         line-height: 12px; /* Match slimmer bar */
-         top: 15px;
-     }
+    #bottom-left-status { width: 150px; }
+    #control-panel-right { width: 150px; gap: 6px; }
+    .bar-outer { height: 12px; }
+    #bottom-left-status span#carbon-value,
+    #bottom-left-status span#hydraulic-value { line-height: 12px; top: 15px; }
 
-     .back-button {
-         left: 160px; /* Adjust based on new status width */
-         padding: 4px 6px;
-     }
-
-     /* Further reduce text sizes */
-    .ui-panel p, .ui-panel div, .ui-panel label, .ui-panel span, .ui-panel li {
+    /* --- Back Button - Above Top Left, Match Leaderboard Width --- */
+    .back-button {
+        top: 5px;
+        left: 5px;
+        width: 130px; /* MATCH LEADERBOARD WIDTH */
+        padding: 4px 8px;
         font-size: 0.8em;
     }
-     #top-right-leaderboard li { padding: 1px 3px; }
-     .control-row label { font-size: 0.75em; }
-     .control-row span { font-size: 0.75em; }
+    /* --- End Back Button --- */
+
+     /* Further reduce text sizes */
+    .ui-panel p, .ui-panel div, .ui-panel label, .ui-panel span, .ui-panel li { font-size: 0.8em; }
+    #top-right-leaderboard li { padding: 1px 3px; }
+    .control-row label { font-size: 0.75em; }
+    .control-row span { font-size: 0.75em; }
 }
