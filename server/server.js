@@ -10,9 +10,9 @@ import { fileURLToPath } from 'url';
 import { handleConnection } from './network/connection.js';
 import { updateSimulationTick } from './game/simulation.js';
 import { broadcastGameState, getFullGameStateSnapshot } from './network/stateBroadcaster.js';
-import { getGlobalState, getAllPlayers, setGamePhase, getPlayerState } from './game/GameState.js'; // Import state getters/setters
-import { resetGame } from './game/gameLogic.js'; // Import resetGame
-import * as Config from './config.js'; // Import server config for startGame
+import { getGlobalState, getAllPlayers, setGamePhase, getPlayerState } from './game/GameState.js';
+import { resetGame } from './game/gameLogic.js';
+import * as Config from './config.js';
 
 // --- Configuration & Setup ---
 const PORT = process.env.PORT || 3000;
@@ -22,7 +22,7 @@ const TICK_INTERVAL_MS = 1000 / TICK_RATE;
 // ES Module path setup
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const clientPath = path.join(__dirname, '..', 'client'); // Path to client files
+const clientPath = path.join(__dirname, '..', 'client');
 
 // Express and HTTP Server
 const app = express();
@@ -38,95 +38,83 @@ let lastTickTime = Date.now();
 // --- Express Routes & Static Files ---
 console.log(`Serving static files from: ${clientPath}`);
 app.use(express.static(clientPath));
-
-app.get('/', (req, res) => {
-  res.sendFile(path.join(clientPath, 'index.html'));
-});
-app.get('/game', (req, res) => {
-    res.sendFile(path.join(clientPath, 'game.html'));
-});
-app.get('/settings', (req, res) => {
-    res.sendFile(path.join(clientPath, 'settings.html'));
-});
-// TODO: Add /admin route later
+app.get('/', (req, res) => { res.sendFile(path.join(clientPath, 'index.html')); });
+app.get('/game', (req, res) => { res.sendFile(path.join(clientPath, 'game.html')); });
+app.get('/settings', (req, res) => { res.sendFile(path.join(clientPath, 'settings.html')); });
 
 // --- Socket.IO Setup ---
-io.on('connection', (socket) => {
-    handleConnection(socket, io); // Delegate connection handling
-});
+io.on('connection', (socket) => { handleConnection(socket, io); });
 
 // --- Main Simulation Loop Function ---
 function runGameTick() {
     const now = Date.now();
-    // Prevent large deltaTime jumps if server lags or loop stops/restarts
-    const deltaTime = Math.min((now - lastTickTime) / 1000.0, 1.0 / TICK_RATE * 5); // Max delta = 5 ticks
+    const deltaTime = Math.min((now - lastTickTime) / 1000.0, 1.0 / TICK_RATE * 5);
     lastTickTime = now;
-
-    // Get current state
     const globalState = getGlobalState();
     const players = getAllPlayers();
-
-    // 1. Update Game Simulation State (only if playing)
     if (globalState.gamePhase === 'playing') {
-        updateSimulationTick(deltaTime, io); // Pass io instance
+        updateSimulationTick(deltaTime, io);
     }
-
-    // 2. Broadcast Updated State to Clients (always broadcast to sync lobby/countdown/ended)
     broadcastGameState(io, players, globalState);
 }
 
-// --- Simulation Control Functions (Exported for use by other modules) ---
+// --- Simulation Control Functions (Exported) ---
 
 /**
- * Starts the main game simulation loop and transitions players to the playing state.
- * Called by gameLogic after countdown finishes.
+ * Starts the main game simulation loop and ensures players are ready.
+ * Called by gameLogic after countdown OR by connection handler for single player.
  */
 export function startGame() {
     const globalState = getGlobalState();
     const players = getAllPlayers();
 
-    if (globalState.gamePhase !== 'countdown') {
-        console.warn(`Server: startGame called but phase is not 'countdown' (Phase: ${globalState.gamePhase}). Aborting.`);
-        // Maybe force phase back to lobby if something went wrong?
+    // Allow starting if phase is 'countdown' (normal multiplayer flow)
+    // OR if phase was just set to 'playing' (single-player start flow)
+    if (globalState.gamePhase !== 'countdown' && globalState.gamePhase !== 'playing') {
+        console.warn(`Server: startGame called with invalid phase: ${globalState.gamePhase}. Aborting.`);
+        // Maybe force reset?
         // resetGame();
         return;
     }
+    // If called during countdown, ensure phase is set to playing
+    if (globalState.gamePhase === 'countdown') {
+         console.log("Server: Starting game from countdown.");
+         setGamePhase('playing');
+    } else {
+         console.log("Server: Starting game (phase already set to playing - likely single player).");
+    }
 
-    console.log("Server: Starting Game!");
-    setGamePhase('playing'); // Set the final phase
 
-    // Prepare players for the game start
+    // Prepare players (ensure they are alive and have spawn points)
+    // This might be slightly redundant if connection handler already did it, but safe to ensure
     Object.values(players).forEach((p, index) => {
-        // Only transition players who are still connected and haven't died somehow
-        // Mark player as alive
-        p.isAlive = true;
-        // Assign spawn point (use default centered/offset logic for now)
-        // TODO: Use player's chosen spawn point if available (Phase 4.2)
-        const angle = (index / Object.keys(players).length) * Math.PI * 2;
-        const radius = 5 + Math.random() * 5; // Add some randomness to radius
-        const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
-        p.spawnPoint = {
-            x: radius * Math.cos(angle),
-            y: baseHeight,
-            z: radius * Math.sin(angle)
-        };
-         console.log(`Server: Player ${p.id} starting game. Spawn: ${p.spawnPoint.x.toFixed(1)}, ${p.spawnPoint.z.toFixed(1)}`);
-        // Reset any per-round state if needed (e.g., maybe reset resources?) - currently done in initializePlayerState
-
+        if (!p.isAlive) { // Only mark alive and assign spawn if not already done
+            p.isAlive = true;
+            console.log(`Server: Marking player ${p.id} alive in startGame.`);
+            // Assign spawn point if missing (should have been set by connection handler ideally)
+            if (!p.spawnPoint || p.spawnPoint.x === undefined) {
+                 console.warn(`Server: Player ${p.id} missing spawn point in startGame, assigning default offset.`);
+                 const angle = (index / Object.keys(players).length) * Math.PI * 2;
+                 const radius = 5 + Math.random() * 5;
+                 const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
+                 p.spawnPoint = { x: radius * Math.cos(angle), y: baseHeight, z: radius * Math.sin(angle) };
+            }
+        }
     });
 
-
-    // Start the simulation loop interval if not already running (shouldn't be)
+    // Start the simulation loop interval if not already running
     if (simulationInterval) {
         console.warn("Server: startGame called but simulationInterval already exists. Clearing old one.");
         clearInterval(simulationInterval);
+        simulationInterval = null; // Ensure it's null before starting new one
     }
     console.log("Server: Starting simulation loop interval.");
-    lastTickTime = Date.now(); // Reset timer for accurate first delta
+    lastTickTime = Date.now();
     simulationInterval = setInterval(runGameTick, TICK_INTERVAL_MS);
 
     // Broadcast the initial 'playing' state immediately
-    broadcastGameState(io, players, globalState);
+    // (Connection handler already sent one, but another ensures client has latest player setup)
+    broadcastGameState(io, players, getGlobalState());
 }
 
 /** Stops the main game simulation loop. */
@@ -136,13 +124,12 @@ export function stopSimulation() {
         clearInterval(simulationInterval);
         simulationInterval = null;
     } else {
-         console.log("Server: Simulation loop already stopped.");
+         // console.log("Server: Simulation loop already stopped."); // Reduce noise
     }
 }
 
 // --- Start HTTP Server ---
 httpServer.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
-    // Ensure game state is lobby on initial server start
-    resetGame();
+    resetGame(); // Ensure initial state is lobby on server start
 });
