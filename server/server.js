@@ -16,7 +16,7 @@ import * as Config from './config.js';
 
 // --- Configuration & Setup ---
 const PORT = process.env.PORT || 3000;
-const TICK_RATE = 20; // Updates per second
+const TICK_RATE = 20;
 const TICK_INTERVAL_MS = 1000 / TICK_RATE;
 
 // ES Module path setup
@@ -55,77 +55,76 @@ function runGameTick() {
     if (globalState.gamePhase === 'playing') {
         updateSimulationTick(deltaTime, io);
     }
+    // Always broadcast state to keep lobby/countdown/ended phases synced
     broadcastGameState(io, players, globalState);
 }
 
 // --- Simulation Control Functions (Exported) ---
 
-/**
- * Starts the main game simulation loop and ensures players are ready.
- * Called by gameLogic after countdown OR by connection handler for single player.
- */
+/** Starts the main game simulation loop and transitions players to the playing state. */
 export function startGame() {
     const globalState = getGlobalState();
     const players = getAllPlayers();
 
-    // Allow starting if phase is 'countdown' (normal multiplayer flow)
-    // OR if phase was just set to 'playing' (single-player start flow)
     if (globalState.gamePhase !== 'countdown' && globalState.gamePhase !== 'playing') {
         console.warn(`Server: startGame called with invalid phase: ${globalState.gamePhase}. Aborting.`);
-        // Maybe force reset?
-        // resetGame();
         return;
     }
-    // If called during countdown, ensure phase is set to playing
     if (globalState.gamePhase === 'countdown') {
          console.log("Server: Starting game from countdown.");
          setGamePhase('playing');
     } else {
-         console.log("Server: Starting game (phase already set to playing - likely single player).");
+         console.log("Server: Starting game (phase already playing - likely single player).");
     }
 
-
-    // Prepare players (ensure they are alive and have spawn points)
-    // This might be slightly redundant if connection handler already did it, but safe to ensure
-    Object.values(players).forEach((p, index) => {
-        if (!p.isAlive) { // Only mark alive and assign spawn if not already done
-            p.isAlive = true;
-            console.log(`Server: Marking player ${p.id} alive in startGame.`);
-            // Assign spawn point if missing (should have been set by connection handler ideally)
-            if (!p.spawnPoint || p.spawnPoint.x === undefined) {
-                 console.warn(`Server: Player ${p.id} missing spawn point in startGame, assigning default offset.`);
+    // Prepare players for the game start
+    let playersToStartCount = 0;
+    Object.values(players).forEach(p => {
+        // Only start players who are currently connected (state exists)
+        // And haven't somehow died before start
+        if (getPlayerState(p.id)) { // Check player still exists in state map
+             if (!p.hasChosenSpawn) {
+                 console.warn(`Server: Player ${p.id} starting game without chosen spawn! Assigning default offset.`);
+                 const index = Object.keys(players).indexOf(p.id);
                  const angle = (index / Object.keys(players).length) * Math.PI * 2;
                  const radius = 5 + Math.random() * 5;
                  const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
                  p.spawnPoint = { x: radius * Math.cos(angle), y: baseHeight, z: radius * Math.sin(angle) };
-            }
+                 p.hasChosenSpawn = true;
+             }
+             // Ensure player is marked alive
+             if (!p.isAlive) {
+                 p.isAlive = true;
+                 console.log(`Server: Marking player ${p.id} alive in startGame.`);
+             }
+             console.log(`Server: Player ${p.id} starting game at spawn: (${p.spawnPoint.x.toFixed(1)}, ${p.spawnPoint.z.toFixed(1)})`);
+             playersToStartCount++;
         }
     });
+
+    if (playersToStartCount === 0) {
+        console.error("Server: startGame called, but no valid players found to start. Resetting to lobby.");
+        resetGame();
+        return;
+    }
 
     // Start the simulation loop interval if not already running
     if (simulationInterval) {
         console.warn("Server: startGame called but simulationInterval already exists. Clearing old one.");
-        clearInterval(simulationInterval);
-        simulationInterval = null; // Ensure it's null before starting new one
+        clearInterval(simulationInterval); simulationInterval = null;
     }
     console.log("Server: Starting simulation loop interval.");
     lastTickTime = Date.now();
     simulationInterval = setInterval(runGameTick, TICK_INTERVAL_MS);
 
     // Broadcast the initial 'playing' state immediately
-    // (Connection handler already sent one, but another ensures client has latest player setup)
     broadcastGameState(io, players, getGlobalState());
 }
 
 /** Stops the main game simulation loop. */
 export function stopSimulation() {
-    if (simulationInterval) {
-        console.log("Server: Stopping simulation loop interval.");
-        clearInterval(simulationInterval);
-        simulationInterval = null;
-    } else {
-         // console.log("Server: Simulation loop already stopped."); // Reduce noise
-    }
+    if (simulationInterval) { console.log("Server: Stopping simulation loop interval."); clearInterval(simulationInterval); simulationInterval = null; }
+    // else { console.log("Server: Simulation loop already stopped."); } // Reduce noise
 }
 
 // --- Start HTTP Server ---
