@@ -1,6 +1,6 @@
 // server/game/GameInstanceManager.js
 import { GameInstance } from './GameInstance.js';
-import * as Config from '../config.js'; // <<< Import Config here
+import * as Config from '../config.js'; // Import Config here
 
 class GameInstanceManager {
     constructor(io) {
@@ -18,7 +18,6 @@ class GameInstanceManager {
         const instance = new GameInstance('single', this.io);
         this.instances.set(instance.state.instanceId, instance);
         // Don't map player yet, routePlayer will do it after adding
-        // this.playerInstanceMap.set(socket.id, instance.state.instanceId);
         console.log(`InstanceMgr: Added instance ${instance.state.instanceId} to manager. Total instances: ${this.instances.size}`);
         return instance;
     }
@@ -79,14 +78,22 @@ class GameInstanceManager {
         if (isAdmin || intent === 'spectate') {
             console.log(`InstanceMgr: Routing admin/spectator ${socket.id} to multiplayer instance.`);
             targetInstance = this.getOrCreateMultiplayerInstance();
-            const playerState = targetInstance.addPlayer(socket);
+            const playerState = targetInstance.addPlayer(socket); // Adds to instance.state.players Map
             if (playerState) {
+                // *** Explicitly set spectator status ***
                 playerState.isSpectator = true;
                 playerState.isAlive = false;
                 if (isAdmin) playerState.playerName = `ADMIN_${socket.id.substring(0, 4)}`;
+
+                // +++ Add Log Confirmation +++
+                console.log(`InstanceMgr: Player state for ${socket.id} SET: isSpectator=${playerState.isSpectator}, isAlive=${playerState.isAlive}`);
+
+                this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId); // Map player to instance AFTER adding to instance state
+
+                 // Send current state of the multiplayer instance
+                 console.log(`InstanceMgr: Sending initial state snapshot to admin/spectator ${socket.id}`);
                  socket.emit('gameStateUpdate', targetInstance.getSnapshot());
                  targetInstance.broadcastState(); // Inform others in the room
-                 this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId); // Map player to instance
             } else {
                  console.error(`InstanceMgr: Failed to add admin/spectator ${socket.id} to multiplayer instance.`);
                  socket.disconnect(true);
@@ -97,7 +104,7 @@ class GameInstanceManager {
             targetInstance = this.createSinglePlayerInstance(socket);
             const playerState = targetInstance.addPlayer(socket);
              if (playerState) {
-                 playerState.isSpectator = false;
+                 playerState.isSpectator = false; // Explicitly NOT spectator
                  playerState.isAlive = true; // Start single player alive
                  // *** Use Config here for default spawn height ***
                  const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
@@ -105,8 +112,9 @@ class GameInstanceManager {
                  playerState.hasChosenSpawn = true;
                  targetInstance.setGamePhase('playing');
                  targetInstance.startSimulationLoop();
-                 socket.emit('gameStateUpdate', targetInstance.getSnapshot());
                  this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId); // Map player to instance
+                 console.log(`InstanceMgr: Sending initial state snapshot to single player ${socket.id}`);
+                 socket.emit('gameStateUpdate', targetInstance.getSnapshot());
              } else {
                   console.error(`InstanceMgr: Failed to add player ${socket.id} to new single-player instance.`);
                   // Instance was added to map in createSinglePlayerInstance, remove it now.
@@ -118,37 +126,31 @@ class GameInstanceManager {
         else if (intent === 'multi') {
             targetInstance = this.getOrCreateMultiplayerInstance();
             const currentPhase = targetInstance.state.gamePhase;
+            const playerState = targetInstance.addPlayer(socket); // Add player first
+
+            if(!playerState){
+                 console.error(`InstanceMgr: Failed to add multiplayer player ${socket.id}.`);
+                 socket.disconnect(true);
+                 return null; // Explicitly return null on failure
+            }
+
+             // Now set status based on phase
+             playerState.isSpectator = false; // Default for multi intent
+             playerState.isAlive = false;
 
             if (currentPhase === 'playing' || currentPhase === 'countdown') {
                 console.warn(`InstanceMgr: Player ${socket.id} joining active multiplayer game (Phase: ${currentPhase}). Forcing Spectator.`);
-                const playerState = targetInstance.addPlayer(socket);
-                 if (playerState) {
-                     playerState.isSpectator = true;
-                     playerState.isAlive = false;
-                     socket.emit('serverMessage', { text: 'Game in progress, joining as spectator.', type: 'warning'});
-                     socket.emit('gameStateUpdate', targetInstance.getSnapshot());
-                     targetInstance.broadcastState();
-                     this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId); // Map player to instance
-                 } else {
-                      console.error(`InstanceMgr: Failed to add player ${socket.id} as spectator to active multiplayer game.`);
-                      socket.disconnect(true);
-                      return null; // Explicitly return null on failure
-                 }
+                playerState.isSpectator = true; // Force spectator
+                socket.emit('serverMessage', { text: 'Game in progress, joining as spectator.', type: 'warning'});
             } else { // Joining lobby/ended multiplayer game
                  console.log(`InstanceMgr: Player ${socket.id} joining multiplayer lobby (Phase: ${currentPhase}).`);
-                 const playerState = targetInstance.addPlayer(socket);
-                 if (playerState) {
-                     playerState.isSpectator = false;
-                     playerState.isAlive = false; // Start dead in lobby
-                     socket.emit('gameStateUpdate', targetInstance.getSnapshot());
-                     targetInstance.broadcastState();
-                     this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId); // Map player to instance
-                 } else {
-                      console.error(`InstanceMgr: Failed to add player ${socket.id} to multiplayer lobby.`);
-                      socket.disconnect(true);
-                      return null; // Explicitly return null on failure
-                 }
+                 // isSpectator = false, isAlive = false (already set)
             }
+
+            this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId); // Map player to instance
+            console.log(`InstanceMgr: Sending initial state snapshot to multiplayer player ${socket.id}`);
+            socket.emit('gameStateUpdate', targetInstance.getSnapshot());
+            targetInstance.broadcastState(); // Inform others
         }
         else {
             console.error(`InstanceMgr: Unknown intent '${intent}' for player ${socket.id}. Disconnecting.`);
@@ -185,7 +187,7 @@ class GameInstanceManager {
                       //      console.log(`InstanceMgr: Last player left multiplayer instance ${instanceId}. Removing instance.`);
                       //      this.removeInstance(instanceId);
                       // }
-                      else {
+                      else if (instance.getAllPlayers().size > 0) { // Only broadcast if players remain
                           // If not removing instance, broadcast updated state within the instance
                           instance.broadcastState();
                       }

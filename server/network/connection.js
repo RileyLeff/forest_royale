@@ -1,60 +1,95 @@
-// server/network/connection.js
-import { adminSockets } from '../server.js'; // Keep adminSockets import for now
-import * as Config from '../config.js'; // Keep for config values if needed locally
+import { adminSockets } from '../server.js';
+import * as Config from '../config.js';
 // Game state, logic, and simulation are now handled by GameInstance and GameInstanceManager
 
 const MIN_SPAWN_DISTANCE_SQ = 4 * 4;
+const CONNECTION_TIMEOUT_MS = 5000; // 5 seconds to send intent or authenticate
 
 /** Sets up event listeners for a newly connected socket. */
 // Accept gameInstanceManager as argument
 export function handleConnection(socket, io, gameInstanceManager) {
-    console.log(`Connection: Player connected: ${socket.id}`);
+    console.log(`Connection: Player connected: ${socket.id}. Waiting for intent or admin auth...`);
 
-    // --- Admin Authentication ---
-    socket.on('adminAuthenticate', (data) => {
+    let connectionTimeout = setTimeout(() => {
+        console.warn(`Connection: Timeout waiting for intent/auth from ${socket.id}. Disconnecting.`);
+        socket.disconnect(true);
+    }, CONNECTION_TIMEOUT_MS);
+
+    let hasRouted = false; // Flag to prevent double routing
+
+    // --- Listener for Admin Authentication ---
+    socket.once('adminAuthenticate', (data) => {
+        if (hasRouted) return; // Already handled by playerJoinRequest? Unlikely but safe.
+        clearTimeout(connectionTimeout); // Clear the timeout
+
         const serverAdminPassword = process.env.ADMIN_PASSWORD || "defaultAdminPass123";
         if (data?.password && data.password === serverAdminPassword) {
             console.log(`Connection: Admin auth OK for ${socket.id}`);
-            adminSockets.add(socket.id);
+            adminSockets.add(socket.id); // Mark as admin globally
             socket.emit('adminAuthResult', { success: true });
-            const targetInstance = gameInstanceManager.routePlayer(socket, 'spectate', true);
+
+            hasRouted = true; // Mark as routed
+            const targetInstance = gameInstanceManager.routePlayer(socket, 'spectate', true); // Route as admin spectator
             if (targetInstance) {
-                setupInputAndActionListeners(socket, io, gameInstanceManager); // Pass manager
+                setupInputAndActionListeners(socket, io, gameInstanceManager); // Setup listeners AFTER routing
             } else { console.error(`Connection: Failed to route authenticated admin ${socket.id}.`); }
+
         } else {
             console.warn(`Connection: Admin auth FAILED for ${socket.id}`);
             socket.emit('adminAuthResult', { success: false, reason: 'Invalid Password' });
-            setTimeout(() => socket.disconnect(true), 1000);
+            // Keep socket open briefly to send result, then disconnect
+            setTimeout(() => socket.disconnect(true), 500);
         }
     });
 
-    // --- Regular Player Join ---
-    const regularJoinListener = (data) => {
-        if (adminSockets.has(socket.id)) { return; }
-        if (!data || !data.intent) { socket.disconnect(true); return; }
-        const targetInstance = gameInstanceManager.routePlayer(socket, data.intent, false);
+    // --- Listener for Regular Player Join ---
+    socket.once('playerJoinRequest', (data) => {
+        if (hasRouted) return; // Already handled by adminAuthenticate?
+        clearTimeout(connectionTimeout); // Clear the timeout
+
+        // Basic validation of join data
+        if (!data || !data.intent || !['single', 'multi', 'spectate'].includes(data.intent)) {
+             console.warn(`Connection: Received invalid playerJoinRequest from ${socket.id}. Data:`, data);
+             socket.disconnect(true);
+             return;
+        }
+        // Prevent regular players from claiming admin status via join request
+        if (adminSockets.has(socket.id)) {
+            console.warn(`Connection: Denying playerJoinRequest from already identified admin ${socket.id}`);
+            return; // Ignore request
+        }
+
+        console.log(`Connection: Received playerJoinRequest from ${socket.id}. Intent: ${data.intent}`);
+        hasRouted = true; // Mark as routed
+        const targetInstance = gameInstanceManager.routePlayer(socket, data.intent, false); // Route based on intent
         if (targetInstance) {
-             setupInputAndActionListeners(socket, io, gameInstanceManager); // Pass manager
+            setupInputAndActionListeners(socket, io, gameInstanceManager); // Setup listeners AFTER routing
         } else { console.error(`Connection: Failed to route player ${socket.id} with intent ${data.intent}.`); }
-    };
-    socket.once('playerJoinRequest', regularJoinListener);
+    });
 
     // --- Disconnect Handling ---
-    socket.on('disconnect', () => {
-        console.log(`Connection: Disconnect event for ${socket.id}`);
+    socket.on('disconnect', (reason) => {
+        // Clear timeout just in case disconnect happens before routing
+        clearTimeout(connectionTimeout);
+        console.log(`Connection: Disconnect event for ${socket.id}. Reason: ${reason}`);
         if (adminSockets.has(socket.id)) {
             adminSockets.delete(socket.id);
             console.log(`Connection: Removed ${socket.id} from global admin set.`);
         }
-        gameInstanceManager.removePlayerFromInstance(socket.id); // Delegate removal
+        // If the player was successfully routed, delegate removal to the manager
+        if(hasRouted) {
+            gameInstanceManager.removePlayerFromInstance(socket.id);
+        } else {
+             console.log(`Connection: Player ${socket.id} disconnected before routing.`);
+        }
     });
 } // End of handleConnection
 
-// handleJoinRequest is removed as its logic is now in gameInstanceManager.routePlayer
 
 /** Sets up listeners for controls AND actions coming from the client */
 // Accept gameInstanceManager as argument
 function setupInputAndActionListeners(socket, io, gameInstanceManager) {
+    console.log(`Connection: Setting up input/action listeners for ${socket.id}`); // Add log
 
     // Helper function to get the instance for the current socket
     function getInstanceForSocket() {
@@ -86,7 +121,7 @@ function setupInputAndActionListeners(socket, io, gameInstanceManager) {
          console.log(`Conn: Received 'requestStartCountdown' from ${socket.id} for instance ${instance.state.instanceId}`);
          const ps = instance.getPlayerState(socket.id);
          if (instance.state.mode === 'multi' && ps && !ps.isSpectator && instance.state.gamePhase === 'lobby' /* && instance.state.allowPlayerCountdownStart TBD */) {
-             instance.startCountdown(); // Call instance method
+             instance.startCountdown();
          } else { console.log(`Conn: Ignoring start countdown. Mode:${instance.state.mode}, Phase:${instance.state.gamePhase}, Player:${!!ps}, Spectator:${ps?.isSpectator}`); }
      });
      socket.on('selectSpawnPoint', (coords) => {
@@ -120,48 +155,25 @@ function setupInputAndActionListeners(socket, io, gameInstanceManager) {
      socket.on('adminForceStart', () => handleAdminCommand('Force Start', (instance) => {
          const phase = instance.state.gamePhase;
          if (phase === 'lobby' || phase === 'countdown') {
-             // *** CALL INSTANCE METHOD TO START ***
              instance._prepareAndStartGame();
              instance.io.to(instance.state.roomId).emit('serverMessage', { text: 'Admin forced game start!', type: 'warning'});
              socket.emit('serverMessage', { text: 'Game force-started.', type: 'success'});
-         } else {
-             console.log("ADMIN: Cannot Force Start, invalid phase.");
-             socket.emit('serverMessage', { text: 'Cannot force start now.', type: 'error'});
-         }
+         } else { console.log("ADMIN: Cannot Force Start, invalid phase."); socket.emit('serverMessage', { text: 'Cannot force start now.', type: 'error'}); }
      }));
-
      socket.on('adminForceEnd', () => handleAdminCommand('Force End', (instance) => {
           const phase = instance.state.gamePhase;
          if (phase === 'playing' || phase === 'countdown') {
-             // *** CALL INSTANCE METHOD TO END ***
              instance.endGame("Game ended by admin.");
              instance.io.to(instance.state.roomId).emit('serverMessage', { text: 'Admin ended the game.', type: 'warning'});
              socket.emit('serverMessage', { text: 'Game force-ended.', type: 'success'});
-         } else {
-             console.log("ADMIN: Cannot Force End, invalid phase.");
-             socket.emit('serverMessage', { text: 'Cannot force end now.', type: 'error'});
-         }
+         } else { console.log("ADMIN: Cannot Force End, invalid phase."); socket.emit('serverMessage', { text: 'Cannot force end now.', type: 'error'}); }
      }));
-
      socket.on('adminResetCountdown', () => handleAdminCommand('Reset Countdown', (instance) => {
          const phase = instance.state.gamePhase;
          let message = ''; let feedback = '';
-         if (phase === 'countdown') {
-             // *** CALL INSTANCE METHODS ***
-             instance.stopCountdown();
-             instance.startCountdown();
-             message = 'Admin reset the countdown.';
-             feedback = 'Countdown reset.';
-         } else if (phase === 'lobby') {
-              // *** CALL INSTANCE METHOD ***
-             instance.startCountdown();
-             message = 'Admin started the countdown.';
-             feedback = 'Countdown started.';
-         } else {
-             console.log("ADMIN: Cannot Reset/Start Countdown, invalid phase.");
-             socket.emit('serverMessage', { text: 'Cannot reset/start countdown now.', type: 'error'});
-             return;
-         }
+         if (phase === 'countdown') { instance.stopCountdown(); instance.startCountdown(); message = 'Admin reset the countdown.'; feedback = 'Countdown reset.'; }
+         else if (phase === 'lobby') { instance.startCountdown(); message = 'Admin started the countdown.'; feedback = 'Countdown started.'; }
+         else { console.log("ADMIN: Cannot Reset/Start Countdown, invalid phase."); socket.emit('serverMessage', { text: 'Cannot reset/start countdown now.', type: 'error'}); return; }
          if (message) instance.io.to(instance.state.roomId).emit('serverMessage', { text: message, type: 'info'});
          if (feedback) socket.emit('serverMessage', { text: feedback, type: 'success'});
      }));

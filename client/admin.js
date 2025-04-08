@@ -128,42 +128,58 @@ function setupAdminSocketListeners() {
     // --- Game State Update Handler (Spectator View) ---
     socket.on('gameStateUpdate', (serverState) => {
          const previousPhase = gameState.gamePhase;
+         const playersFromServer = serverState.players || {}; // Ensure players object exists
+         const myServerData = playersFromServer[gameState.myId]; // Get data for this admin client
+
+         // +++ Log Received Spectator Status +++
+         console.log(`Admin GS Update: Received state. My server data:`, myServerData);
+         if (myServerData) {
+             console.log(`Admin GS Update: My isSpectator status from server = ${myServerData.isSpectator}`);
+         } else if (gameState.myId) {
+              console.warn(`Admin GS Update: Did not find own ID (${gameState.myId}) in received players object.`);
+         }
+
          // Update core state properties
          Object.assign(gameState, {
              day: serverState.day, timeInCycle: serverState.timeInCycle, currentPeriodIndex: serverState.currentPeriodIndex,
              isNight: serverState.isNight, currentLightMultiplier: serverState.currentLightMultiplier, currentDroughtFactor: serverState.currentDroughtFactor,
              isRaining: serverState.isRaining, gamePhase: serverState.gamePhase, countdownTimer: serverState.countdownTimer,
              serverTime: serverState.serverTime,
-             players: serverState.players || {}, // Handle potentially missing players object
+             players: playersFromServer, // Update player cache
              allowPlayerCountdownStart: serverState.allowPlayerCountdownStart,
          });
-         gameState.isSpectator = true; // Ensure always spectator
 
-         if (!gameState.initialStateReceived) {
-             console.log("Admin: First gameStateUpdate received.");
+         // +++ Force local spectator status based on received data or default to true +++
+         // Ensure admin client always considers itself a spectator locally
+         gameState.isSpectator = true; // Keep this definitively true for admin client
+         console.log(`Admin GS Update: Local gameState.isSpectator forced to = ${gameState.isSpectator}`);
+         // We still log the server status above for debugging, but the admin client UI/logic should rely on its forced spectator status.
+
+         // --- First time setup ---
+         if (!gameState.initialStateReceived && gameState.myId /*&& myServerData - Don't require server data for first admin setup*/) {
+             console.log("Admin: First gameStateUpdate processed (or initial connection established).");
              if(controls) { controls.target.set(0, 5, 0); controls.update(); } // General island view
              setWeatherTargets(gameState.isNight, gameState.currentLightMultiplier < Config.LIGHT_MULT_SUNNY - 0.1, gameState.isRaining);
              updateEnvironmentVisuals(1000); if(gameState.isRaining) startRain(); else stopRain();
              gameState.initialStateReceived = true; startGameLoop();
              setTimeout(() => showMessage(`Game state: ${gameState.gamePhase}`, 'info'), 100);
-         } else if (gameState.gamePhase !== previousPhase) {
+         }
+         // --- Phase change updates ---
+         else if (gameState.gamePhase !== previousPhase) {
              console.log(`Admin phase updated to: ${gameState.gamePhase}`);
              showMessage(`Game state: ${gameState.gamePhase}`, 'info');
-             // Hide game over modal if state changes away from 'ended'
-              if(gameState.gamePhase !== 'ended' && uiElements.gameOverModal && !uiElements.gameOverModal.classList.contains('hidden')) {
-                   hideGameOverModal();
-              }
+             if(gameState.gamePhase !== 'ended' && uiElements.gameOverModal && !uiElements.gameOverModal.classList.contains('hidden')) { hideGameOverModal(); }
          }
 
          /* Update Environment */ const wasRaining = scene?.getObjectByName("rain")?.visible ?? false; setWeatherTargets(gameState.isNight, gameState.currentLightMultiplier < Config.LIGHT_MULT_SUNNY - 0.1, gameState.isRaining); if (gameState.isRaining && !wasRaining) startRain(); else if (!gameState.isRaining && wasRaining) stopRain();
 
          /* Update Trees */
-         const playersFromServer = serverState.players || {};
          const receivedPlayerIds = new Set(Object.keys(playersFromServer));
          for (const playerId in playersFromServer) {
              const playerData = playersFromServer[playerId];
-             if (playerData.isSpectator) { // Remove trees for ALL spectators, including self
-                 removeTree(playerId);
+             // *** Use the player's spectator flag from the received data ***
+             if (playerData.isSpectator) {
+                 removeTree(playerId); // Remove tree for ANY spectator
              } else {
                  createOrUpdateTree(playerId, playerData); // Render non-spectators
              }
@@ -173,8 +189,7 @@ function setupAdminSocketListeners() {
              if (!receivedPlayerIds.has(playerId)) removeTree(playerId);
          });
 
-         /* Update Camera Target */
-         if (controls) controls.target.lerp(new THREE.Vector3(0, 5, 0), 0.05); // Keep overview
+         /* Update Camera Target */ if (controls) controls.target.lerp(new THREE.Vector3(0, 5, 0), 0.05); // Keep overview
 
      }); // End gameStateUpdate
 
@@ -190,19 +205,12 @@ function setupAdminSocketListeners() {
          // Show modal, but maybe don't stop loop?
          if (uiElements.gameOverModal && uiElements.adminCloseModalButton) { // Check modal and button exist
             if(uiElements.gameOverReasonUI) uiElements.gameOverReasonUI.textContent = `Game Ended: ${gameState.gameOverReason}`;
-
-            // Hide player-specific day/seed count on admin modal
             if(uiElements.finalDayUI && uiElements.finalDayUI.parentElement) uiElements.finalDayUI.parentElement.style.display = 'none';
             if(uiElements.finalSeedsUI && uiElements.finalSeedsUI.parentElement) uiElements.finalSeedsUI.parentElement.style.display = 'none';
-
-            // Hide regular restart button if it exists, show only admin close
             if(uiElements.restartButton) uiElements.restartButton.style.display = 'none';
             uiElements.adminCloseModalButton.style.display = 'inline-block'; // Ensure admin close is visible
-
             uiElements.gameOverModal.classList.remove('hidden');
-         } else {
-              console.warn("Cannot show admin game over modal - elements missing.");
-         }
+         } else { console.warn("Cannot show admin game over modal - elements missing."); }
     });
 
      // Listen for server messages (e.g., admin command confirmations)
@@ -222,52 +230,23 @@ function setupAdminButtonListeners() {
     const resetCountdownBtn = document.getElementById('admin-reset-countdown');
     const closeModalBtn = uiElements.adminCloseModalButton; // Use cached element
 
-    // Ensure controls panel starts hidden until authenticated
-     if (uiElements.adminControls) uiElements.adminControls.style.display = 'none';
+    if (uiElements.adminControls) uiElements.adminControls.style.display = 'none';
 
     function emitAdminCommand(command) {
-        // Only allow commands if WS connection is authenticated
         if (socket && socket.connected && isAdminAuthenticated) {
             console.log(`Admin: Emitting command: ${command}`);
-            socket.emit(command); // Send command to server
-        } else {
-            console.error(`Admin: Cannot send command '${command}', socket not connected or not authenticated.`);
-            showMessage("Cannot send command: Not authenticated.", "error");
-        }
+            socket.emit(command);
+        } else { console.error(`Admin: Cannot send command '${command}', socket not connected or not authenticated.`); showMessage("Cannot send command: Not authenticated.", "error"); }
     }
 
-    if (forceStartBtn) forceStartBtn.addEventListener('click', () => emitAdminCommand('adminForceStart'));
-    else console.warn("Admin button 'admin-force-start' not found.");
-
-    if (forceEndBtn) forceEndBtn.addEventListener('click', () => emitAdminCommand('adminForceEnd'));
-    else console.warn("Admin button 'admin-force-end' not found.");
-
-    if (resetCountdownBtn) resetCountdownBtn.addEventListener('click', () => emitAdminCommand('adminResetCountdown'));
-    else console.warn("Admin button 'admin-reset-countdown' not found.");
-
-    if (closeModalBtn) {
-         // Attach listener (remove first to prevent duplicates if modal shown multiple times)
-         closeModalBtn.removeEventListener('click', hideGameOverModal);
-         closeModalBtn.addEventListener('click', hideGameOverModal);
-         // Ensure it starts hidden in case game over modal is reused but button is admin-specific
-         // Button visibility handled when modal is shown in gameOver handler
-         // closeModalBtn.style.display = 'none'; // Let gameOver handler control visibility
-    } else {
-         console.warn("Admin close modal button 'admin-close-modal' not found.");
-    }
+    if (forceStartBtn) forceStartBtn.addEventListener('click', () => emitAdminCommand('adminForceStart')); else console.warn("Admin button 'admin-force-start' not found.");
+    if (forceEndBtn) forceEndBtn.addEventListener('click', () => emitAdminCommand('adminForceEnd')); else console.warn("Admin button 'admin-force-end' not found.");
+    if (resetCountdownBtn) resetCountdownBtn.addEventListener('click', () => emitAdminCommand('adminResetCountdown')); else console.warn("Admin button 'admin-reset-countdown' not found.");
+    if (closeModalBtn) { closeModalBtn.removeEventListener('click', hideGameOverModal); closeModalBtn.addEventListener('click', hideGameOverModal); } else { console.warn("Admin close modal button 'admin-close-modal' not found."); }
 }
 
 // --- Admin Rendering Loop ---
-function gameLoop() {
-    animationFrameId = requestAnimationFrame(gameLoop);
-    const deltaTime = clock.getDelta();
-    updateEnvironmentVisuals(deltaTime);
-    updateRain(deltaTime);
-    updateAdminUI(); // Use the dedicated admin UI updater
-    if (controls) controls.update();
-    if (renderer && scene && camera) renderer.render(scene, camera);
-    else { console.error("Admin Render components missing!"); stopGameLoop(); }
-}
+function gameLoop() { animationFrameId = requestAnimationFrame(gameLoop); const deltaTime = clock.getDelta(); updateEnvironmentVisuals(deltaTime); updateRain(deltaTime); updateAdminUI(); if (controls) controls.update(); if (renderer && scene && camera) renderer.render(scene, camera); else { console.error("Admin Render components missing!"); stopGameLoop(); } }
 function startGameLoop() { if (animationFrameId !== null) return; console.log("Admin: Starting render loop."); clock = new THREE.Clock(); gameLoop(); }
 function stopGameLoop() { if (animationFrameId !== null) { cancelAnimationFrame(animationFrameId); animationFrameId = null; console.log("Admin: Stopped render loop."); } }
 

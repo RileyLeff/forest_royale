@@ -1,4 +1,4 @@
-// client/main.js
+--- FILE: client/main.js ---
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'; // Keep if OrbitControls is used here
@@ -13,14 +13,26 @@ import { showMessage, clearMessage, attachServerMessageListener } from './ui/mes
 import { hideGameOverModal, showGameOverUI } from './ui/gameOver.js';
 import { updateEnvironmentVisuals, updateRain, setWeatherTargets, startRain, stopRain } from './environment.js';
 
+
 // --- Global Variables ---
-let clock = new THREE.Clock(); let animationFrameId = null; let socket = null;
-let raycaster = new THREE.Raycaster(); let mouse = new THREE.Vector2();
-let islandMesh = null; let spawnMarkers = new Map(); let tempSpawnMarker = null;
+// Keep these accessible if needed by imported functions like handleRestart, socket export
+let clock = new THREE.Clock();
+let animationFrameId = null;
+let socket = null; // Keep socket global for export
+let raycaster = new THREE.Raycaster();
+let mouse = new THREE.Vector2();
+let islandMesh = null;
+let spawnMarkers = new Map();
+let tempSpawnMarker = null;
+
 
 // --- Initialization Function ---
 function initializeApp() {
-    console.log("Initializing Island Canopy Sim Client...");
+    // This log should now ONLY appear when game.html is loaded
+    console.log("*********************************************");
+    console.log("*** main.js initializeApp() Starting... ***");
+    console.log("*********************************************");
+
     const intent = sessionStorage.getItem('gameModeIntent') || 'single'; // Default to single if nothing stored
     gameState.isSpectator = (intent === 'spectate');
     console.log(`Client: Detected intent: ${intent}, Is Spectator: ${gameState.isSpectator}`);
@@ -57,12 +69,13 @@ function initializeApp() {
     }
 
     console.log("Attempting to connect to server...");
+    // Create socket instance here, so it's available for export
     socket = io({
          reconnection: true, // Enable default reconnection
          reconnectionAttempts: 5,
          reconnectionDelay: 1000,
     });
-    setupSocketListeners(intent);
+    setupSocketListeners(intent); // Pass intent
     setupUIListeners(); // Sets up listeners for game controls etc.
     updateUI(); clearMessage();
     console.log("Client Initialization complete. Waiting for server connection...");
@@ -73,7 +86,6 @@ function handleSpawnClick(event) {
     const myState = getMyPlayerState();
     // Check all conditions: lobby phase, not spectator, player state exists, hasn't chosen, island exists, not pointer locked
     if (gameState.gamePhase !== 'lobby' || gameState.isSpectator || !myState || myState.hasChosenSpawn || !islandMesh || document.pointerLockElement === renderer.domElement) {
-        // console.log("Spawn click ignored:", gameState.gamePhase, gameState.isSpectator, !!myState, myState?.hasChosenSpawn); // Debug log
         return;
     }
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -150,7 +162,7 @@ function removeAllSpawnMarkers() {
 }
 
 // --- Socket Event Listener Setup ---
-function setupSocketListeners(intent) {
+function setupSocketListeners(intent) { // Accept intent
     socket.on('connect', () => {
         gameState.myId = socket.id;
         console.log(`Connected to server with ID: ${gameState.myId}`);
@@ -192,10 +204,7 @@ function setupSocketListeners(intent) {
 
     // --- Game State Update Handler ---
     socket.on('gameStateUpdate', (serverState) => {
-        // console.log("GS Update:", serverState.gamePhase, serverState.players); // Debug log
         const previousPhase = gameState.gamePhase;
-
-        // Check if serverState.players exists before trying to access it
         const playersFromServer = serverState.players || {};
         const myServerData = playersFromServer[gameState.myId];
 
@@ -210,7 +219,8 @@ function setupSocketListeners(intent) {
         });
 
         // Update spectator status based *only* on server data for this client
-        gameState.isSpectator = myServerData?.isSpectator ?? gameState.isSpectator; // Keep current if server data missing
+        // Important: Don't default to false here if data is missing, keep existing state
+        gameState.isSpectator = myServerData?.isSpectator ?? gameState.isSpectator;
 
         // First time setup
         if (!gameState.initialStateReceived && gameState.myId && myServerData) {
@@ -230,74 +240,56 @@ function setupSocketListeners(intent) {
                  }
                  controls.update();
              }
-             // Initial environment setup
              setWeatherTargets(gameState.isNight, gameState.currentLightMultiplier < Config.LIGHT_MULT_SUNNY - 0.1, gameState.isRaining);
-             updateEnvironmentVisuals(1000); // Initial fast transition
+             updateEnvironmentVisuals(1000);
              if(gameState.isRaining) startRain(); else stopRain();
-
              gameState.initialStateReceived = true;
-             startGameLoop(); // Start render loop ONLY after first state
+             startGameLoop();
              setTimeout(() => showMessage(`Game state: ${gameState.gamePhase}`, 'info'), 100);
          } else if (gameState.gamePhase !== previousPhase) {
              console.log(`Client phase updated from ${previousPhase} to: ${gameState.gamePhase}`);
              showMessage(`Game state: ${gameState.gamePhase}`, 'info');
-             // Clear spawn markers when leaving lobby/countdown
              if ((previousPhase === 'lobby' || previousPhase === 'countdown') && (gameState.gamePhase !== 'lobby' && gameState.gamePhase !== 'countdown')) {
                  removeAllSpawnMarkers();
              }
          }
 
          // --- Continuous Updates ---
-
-         // Update Environment Visuals (Sky, Fog, Rain)
          const wasRaining = scene?.getObjectByName("rain")?.visible ?? false;
          setWeatherTargets(gameState.isNight, gameState.currentLightMultiplier < Config.LIGHT_MULT_SUNNY - 0.1, gameState.isRaining);
          if (gameState.isRaining && !wasRaining) startRain();
          else if (!gameState.isRaining && wasRaining) stopRain();
 
-         // Update Trees & Spawn Markers
          const receivedPlayerIds = new Set(Object.keys(playersFromServer));
          for (const playerId in playersFromServer) {
              const playerData = playersFromServer[playerId];
-             // Tree Rendering: Render if NOT spectator OR if spectator viewing others
              if (!playerData.isSpectator) {
                  createOrUpdateTree(playerId, playerData);
              } else {
-                  // Ensure no tree is rendered for spectators themselves
-                  removeTree(playerId);
+                  removeTree(playerId); // Ensure spectators don't have trees
              }
-             // Spawn Marker Rendering: Only show in lobby/countdown phase
              if (gameState.gamePhase === 'lobby' || gameState.gamePhase === 'countdown') {
                  addOrUpdateSpawnMarker(playerId, playerData.spawnPoint, playerData.hasChosenSpawn);
              }
          }
-         // Remove trees for players no longer in the state
-         gameState.playerTrees.forEach((_, playerId) => {
-             if (!receivedPlayerIds.has(playerId)) removeTree(playerId);
-         });
-         // Remove markers for players no longer in the state
-         spawnMarkers.forEach((_, playerId) => {
-              if (!receivedPlayerIds.has(playerId)) removeSpawnMarker(playerId);
-         });
-         // Clean up all markers if not in lobby/countdown
+         gameState.playerTrees.forEach((_, playerId) => { if (!receivedPlayerIds.has(playerId)) removeTree(playerId); });
+         spawnMarkers.forEach((_, playerId) => { if (!receivedPlayerIds.has(playerId)) removeSpawnMarker(playerId); });
          if (gameState.gamePhase !== 'lobby' && gameState.gamePhase !== 'countdown' && spawnMarkers.size > 0) {
              removeAllSpawnMarkers();
          }
 
-         // Update Camera Target (Player Follow / Spectator Overview)
-         const myCurrentState = getMyPlayerState(); // Get potentially updated state
+         // Update Camera Target
+         const myCurrentState = getMyPlayerState();
          if (myCurrentState && myCurrentState.isAlive && !gameState.isSpectator && controls && gameState.playerTrees.has(gameState.myId)) {
              const myTreeGroup = gameState.playerTrees.get(gameState.myId);
-             if (myTreeGroup) { // Check tree exists
+             if (myTreeGroup) {
                  const baseLevel = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
                  const targetPos = new THREE.Vector3(myTreeGroup.position.x, myCurrentState.trunkHeight / 2 + baseLevel, myTreeGroup.position.z);
-                 if (!controls.target.equals(targetPos)){ controls.target.lerp(targetPos, 0.1); } // Smooth follow
+                 if (!controls.target.equals(targetPos)){ controls.target.lerp(targetPos, 0.1); }
              }
          } else if (controls && (gameState.isSpectator || !myCurrentState?.isAlive) && gameState.gamePhase !== 'lobby') {
-             // If spectator, or player is dead, or game not in lobby -> general overview
              controls.target.lerp(new THREE.Vector3(0, 5, 0), 0.05);
          }
-         // No camera lerp in lobby - allow free look
 
      }); // End gameStateUpdate
 
@@ -327,7 +319,6 @@ function setupSocketListeners(intent) {
         console.log(`Player ${playerId} disconnected.`);
         removeTree(playerId);
         removeSpawnMarker(playerId);
-        // Player list UI will update on next gameStateUpdate
     });
     socket.on('gameOver', (data) => {
         console.log("Game Over received:", data);
@@ -337,13 +328,10 @@ function setupSocketListeners(intent) {
         removeAllSpawnMarkers();
         showGameOverUI(); // Update UI immediately
     });
-
-     // Listen for server messages (e.g., join notifications)
      socket.on('serverMessage', (data) => {
          console.log("Received server message:", data);
          showMessage(data.text, data.type || 'info');
      });
-
 
 } // End of setupSocketListeners
 
@@ -383,5 +371,13 @@ export function handleRestart() {
 // --- Export socket for other modules ---
 export { socket };
 
-// --- Start Application ---
-document.addEventListener('DOMContentLoaded', initializeApp);
+// --- Conditional Initialization ---
+// Check if the current script URL matches the expected entry point URL
+// This prevents initializeApp from running when main.js is just imported as a module
+const mainScriptUrl = new URL('/main.js', window.location.origin).href;
+if (import.meta.url === mainScriptUrl) {
+    console.log("main.js detected as entry point script. Adding DOMContentLoaded listener.");
+    document.addEventListener('DOMContentLoaded', initializeApp);
+} else {
+    console.log(`main.js imported as dependency (URL: ${import.meta.url}), skipping initializeApp listener.`);
+}
