@@ -29,6 +29,7 @@ export function handleConnection(socket, io, gameInstanceManager) {
             socket.emit('adminAuthResult', { success: true });
 
             hasRouted = true; // Mark as routed
+            // Admin doesn't send settings, routePlayer handles default admin name
             const targetInstance = gameInstanceManager.routePlayer(socket, 'spectate', true); // Route as admin spectator
             if (targetInstance) {
                 setupInputAndActionListeners(socket, io, gameInstanceManager); // Setup listeners AFTER routing
@@ -43,7 +44,7 @@ export function handleConnection(socket, io, gameInstanceManager) {
     });
 
     // --- Listener for Regular Player Join ---
-    socket.once('playerJoinRequest', (data) => {
+    socket.once('playerJoinRequest', (data) => { // 'data' contains the payload from the client
         if (hasRouted) return; // Already handled by adminAuthenticate?
         clearTimeout(connectionTimeout); // Clear the timeout
 
@@ -59,12 +60,29 @@ export function handleConnection(socket, io, gameInstanceManager) {
             return; // Ignore request
         }
 
-        console.log(`Connection: Received playerJoinRequest from ${socket.id}. Intent: ${data.intent}`);
+        // <<<--- LOG RECEIVED DATA ---<<<
+        console.log(`Connection: Received playerJoinRequest from ${socket.id}. Intent: ${data.intent}. Payload:`, data);
+
+        // Extract settings (provide defaults if missing, though client should send them)
+        const settings = {
+            playerName: data.playerName || `Player_${socket.id.substring(0, 4)}`,
+            leafColor: data.leafColor || '#228B22', // Default Green from server/config.js could be used here too
+            trunkColor: data.trunkColor || '#8B4513' // Default Brown from server/config.js
+        };
+        // ---<<< LOG EXTRACTED SETTINGS --->>>
+        console.log(`Connection: Extracted settings for ${socket.id}:`, settings);
+
+
         hasRouted = true; // Mark as routed
-        const targetInstance = gameInstanceManager.routePlayer(socket, data.intent, false); // Route based on intent
+        // ---<<< PASS SETTINGS TO ROUTEPLAYER ---<<<
+        const targetInstance = gameInstanceManager.routePlayer(socket, data.intent, false, settings); // Pass settings object
+
         if (targetInstance) {
+            // Settings should be applied within routePlayer or immediately after
             setupInputAndActionListeners(socket, io, gameInstanceManager); // Setup listeners AFTER routing
-        } else { console.error(`Connection: Failed to route player ${socket.id} with intent ${data.intent}.`); }
+        } else {
+            console.error(`Connection: Failed to route player ${socket.id} with intent ${data.intent}.`);
+        }
     });
 
     // --- Disconnect Handling ---
@@ -120,9 +138,9 @@ function setupInputAndActionListeners(socket, io, gameInstanceManager) {
          const instance = getInstanceForSocket(); if (!instance) return;
          console.log(`Conn: Received 'requestStartCountdown' from ${socket.id} for instance ${instance.state.instanceId}`);
          const ps = instance.getPlayerState(socket.id);
-         if (instance.state.mode === 'multi' && ps && !ps.isSpectator && instance.state.gamePhase === 'lobby' /* && instance.state.allowPlayerCountdownStart TBD */) {
+         if (instance.state.mode === 'multi' && ps && !ps.isSpectator && instance.state.gamePhase === 'lobby' && instance.state.allowPlayerCountdownStart ) { // Check admin toggle
              instance.startCountdown();
-         } else { console.log(`Conn: Ignoring start countdown. Mode:${instance.state.mode}, Phase:${instance.state.gamePhase}, Player:${!!ps}, Spectator:${ps?.isSpectator}`); }
+         } else { console.log(`Conn: Ignoring start countdown. Mode:${instance.state.mode}, Phase:${instance.state.gamePhase}, Player:${!!ps}, Spectator:${ps?.isSpectator}, AllowStart: ${instance.state.allowPlayerCountdownStart}`); }
      });
      socket.on('selectSpawnPoint', (coords) => {
          const instance = getInstanceForSocket(); if (!instance) return;

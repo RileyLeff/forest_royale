@@ -17,7 +17,6 @@ class GameInstanceManager {
         console.log(`InstanceMgr: Creating new single-player instance for ${socket.id}`);
         const instance = new GameInstance('single', this.io);
         this.instances.set(instance.state.instanceId, instance);
-        // Don't map player yet, routePlayer will do it after adding
         console.log(`InstanceMgr: Added instance ${instance.state.instanceId} to manager. Total instances: ${this.instances.size}`);
         return instance;
     }
@@ -45,22 +44,17 @@ class GameInstanceManager {
         const instance = this.instances.get(instanceId);
         if (instance) {
             console.log(`InstanceMgr: Removing instance ${instanceId} (Mode: ${instance.state.mode}).`);
-            instance.stopSimulationLoop(); // Ensure loops are stopped
+            instance.stopSimulationLoop();
             instance.stopCountdown();
-
-            // Remove players from the map and potentially the socket rooms
             instance.getAllPlayers().forEach((playerData, socketId) => {
                  this.playerInstanceMap.delete(socketId);
-                 const socket = instance.findSocket(socketId); // Attempt to find socket
-                 if (socket) {
-                      socket.leave(instance.state.roomId);
-                 }
+                 const socket = instance.findSocket(socketId);
+                 if (socket) { socket.leave(instance.state.roomId); }
             });
-
             this.instances.delete(instanceId);
             if (this.multiplayerInstanceId === instanceId) {
                 console.log(`InstanceMgr: Removed multiplayer instance. It needs to be recreated.`);
-                this.multiplayerInstanceId = null; // Allow recreation
+                this.multiplayerInstanceId = null;
             }
             console.log(`InstanceMgr: Instance ${instanceId} removed. Remaining instances: ${this.instances.size}`);
             return true;
@@ -70,84 +64,100 @@ class GameInstanceManager {
     }
 
     // --- Player Routing & Management ---
-
-    routePlayer(socket, intent, isAdmin) {
+    // <<<--- ACCEPT SETTINGS ARGUMENT (make it optional for admin/spectate) ---<<<
+    routePlayer(socket, intent, isAdmin, settings = null) {
         console.log(`InstanceMgr: Routing player ${socket.id} with intent: ${intent}, isAdmin: ${isAdmin}`);
         let targetInstance = null;
 
         if (isAdmin || intent === 'spectate') {
+            // Admins/Spectators don't typically need custom settings applied this way
             console.log(`InstanceMgr: Routing admin/spectator ${socket.id} to multiplayer instance.`);
             targetInstance = this.getOrCreateMultiplayerInstance();
-            const playerState = targetInstance.addPlayer(socket); // Adds to instance.state.players Map
+            const playerState = targetInstance.addPlayer(socket);
             if (playerState) {
-                // *** Explicitly set spectator status ***
                 playerState.isSpectator = true;
-                playerState.isAlive = false; // Ensure they start dead
-                if (isAdmin) playerState.playerName = `ADMIN_${socket.id.substring(0, 4)}`; // Keep admin name distinct
+                playerState.isAlive = false;
+                if (isAdmin) playerState.playerName = `ADMIN_${socket.id.substring(0, 4)}`;
+                // Don't apply user settings to admin/spectator unless desired
 
-                // +++ Add Log Confirmation BEFORE mapping/snapshot +++
                 console.log(`InstanceMgr: Player state for ${socket.id} SET: isSpectator=${playerState.isSpectator}, isAlive=${playerState.isAlive}, Name=${playerState.playerName}`);
-
-                this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId); // Map player to instance AFTER adding to instance state
-
-                 // +++ Add Log BEFORE snapshot +++
-                 const snapshotData = targetInstance.getSnapshot();
-                 const adminDataInSnapshot = snapshotData.players[socket.id];
-                 console.log(`InstanceMgr: Sending initial snapshot. Admin (${socket.id}) data in snapshot: isSpectator=${adminDataInSnapshot?.isSpectator}, isAlive=${adminDataInSnapshot?.isAlive}`);
-                 // +++++++++++++++++++++++++++++++++
-
-                 socket.emit('gameStateUpdate', snapshotData); // Send current state of the multiplayer instance
-                 targetInstance.broadcastState(); // Inform others in the room
+                this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId);
+                const snapshotData = targetInstance.getSnapshot();
+                const adminDataInSnapshot = snapshotData.players[socket.id];
+                console.log(`InstanceMgr: Sending initial snapshot. Admin (${socket.id}) data in snapshot: isSpectator=${adminDataInSnapshot?.isSpectator}, isAlive=${adminDataInSnapshot?.isAlive}`);
+                socket.emit('gameStateUpdate', snapshotData);
+                targetInstance.broadcastState();
             } else {
                  console.error(`InstanceMgr: Failed to add admin/spectator ${socket.id} to multiplayer instance.`);
                  socket.disconnect(true);
-                 return null; // Explicitly return null on failure
+                 return null;
             }
-        }
-        else if (intent === 'single') {
+
+        } else if (intent === 'single') {
             targetInstance = this.createSinglePlayerInstance(socket);
             const playerState = targetInstance.addPlayer(socket);
              if (playerState) {
-                 playerState.isSpectator = false; // Explicitly NOT spectator
-                 playerState.isAlive = true; // Start single player alive
-                 // *** Use Config here for default spawn height ***
+                 playerState.isSpectator = false;
+                 playerState.isAlive = true;
                  const baseHeight = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
                  playerState.spawnPoint = { x: 0, y: baseHeight, z: 0 };
                  playerState.hasChosenSpawn = true;
+
+                 // --->>> APPLY SETTINGS FOR SINGLE PLAYER <<<---
+                 if (settings) {
+                     playerState.playerName = settings.playerName;
+                     playerState.leafColor = settings.leafColor;
+                     playerState.trunkColor = settings.trunkColor;
+                     console.log(`InstanceMgr: Applied settings to single player ${socket.id}:`, { name: playerState.playerName, leaf: playerState.leafColor, trunk: playerState.trunkColor });
+                 } else {
+                      console.warn(`InstanceMgr: No settings provided for single player ${socket.id}. Using defaults.`);
+                 }
+                 // ---<<< END APPLY SETTINGS >>>---
+
                  targetInstance.setGamePhase('playing');
                  targetInstance.startSimulationLoop();
-                 this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId); // Map player to instance
+                 this.playerInstanceMap.set(socket.id, targetInstance.state.instanceId);
                  console.log(`InstanceMgr: Sending initial state snapshot to single player ${socket.id}`);
                  socket.emit('gameStateUpdate', targetInstance.getSnapshot());
              } else {
                   console.error(`InstanceMgr: Failed to add player ${socket.id} to new single-player instance.`);
-                  // Instance was added to map in createSinglePlayerInstance, remove it now.
                   if (targetInstance) this.removeInstance(targetInstance.state.instanceId);
                   socket.disconnect(true);
-                  return null; // Explicitly return null on failure
+                  return null;
              }
-        }
-        else if (intent === 'multi') {
+
+        } else if (intent === 'multi') {
             targetInstance = this.getOrCreateMultiplayerInstance();
             const currentPhase = targetInstance.state.gamePhase;
-            const playerState = targetInstance.addPlayer(socket); // Add player first
+            const playerState = targetInstance.addPlayer(socket);
 
             if(!playerState){
                  console.error(`InstanceMgr: Failed to add multiplayer player ${socket.id}.`);
                  socket.disconnect(true);
-                 return null; // Explicitly return null on failure
+                 return null;
             }
 
-             // Now set status based on phase
              playerState.isSpectator = false; // Default for multi intent
              playerState.isAlive = false;
 
+            // --->>> APPLY SETTINGS FOR MULTIPLAYER <<<---
+            if (settings) {
+                playerState.playerName = settings.playerName;
+                playerState.leafColor = settings.leafColor;
+                playerState.trunkColor = settings.trunkColor;
+                console.log(`InstanceMgr: Applied settings to multiplayer player ${socket.id}:`, { name: playerState.playerName, leaf: playerState.leafColor, trunk: playerState.trunkColor });
+            } else {
+                 console.warn(`InstanceMgr: No settings provided for multiplayer player ${socket.id}. Using defaults.`);
+            }
+            // ---<<< END APPLY SETTINGS >>>---
+
+            // Determine spectator status based on phase *after* applying settings
             if (currentPhase === 'playing' || currentPhase === 'countdown') {
-                console.warn(`InstanceMgr: Player ${socket.id} joining active multiplayer game (Phase: ${currentPhase}). Forcing Spectator.`);
+                console.warn(`InstanceMgr: Player ${socket.id} (${playerState.playerName}) joining active multiplayer game (Phase: ${currentPhase}). Forcing Spectator.`);
                 playerState.isSpectator = true; // Force spectator
                 socket.emit('serverMessage', { text: 'Game in progress, joining as spectator.', type: 'warning'});
-            } else { // Joining lobby/ended multiplayer game
-                 console.log(`InstanceMgr: Player ${socket.id} joining multiplayer lobby (Phase: ${currentPhase}).`);
+            } else {
+                 console.log(`InstanceMgr: Player ${socket.id} (${playerState.playerName}) joining multiplayer lobby (Phase: ${currentPhase}).`);
                  // isSpectator = false, isAlive = false (already set)
             }
 
@@ -180,32 +190,24 @@ class GameInstanceManager {
                  if (wasRemoved) {
                       this.playerInstanceMap.delete(socketId);
                       console.log(`InstanceMgr: Removed player ${socketId} from instance map.`);
-
-                      // Check if instance should be removed
                       if (instance.state.mode === 'single' && instance.getAllPlayers().size === 0) {
                            console.log(`InstanceMgr: Last player left single-player instance ${instanceId}. Removing instance.`);
                            this.removeInstance(instanceId);
                       }
-                      // Auto-remove multiplayer instance if empty? Maybe not, allow it to persist in lobby state.
-                      // else if (instance.state.mode === 'multi' && instance.getAllPlayers().size === 0) {
-                      //      console.log(`InstanceMgr: Last player left multiplayer instance ${instanceId}. Removing instance.`);
-                      //      this.removeInstance(instanceId);
-                      // }
-                      else if (instance.getAllPlayers().size > 0) { // Only broadcast if players remain
-                          // If not removing instance, broadcast updated state within the instance
+                      else if (instance.getAllPlayers().size > 0) {
                           instance.broadcastState();
                       }
-                      return true; // Successfully removed
+                      return true;
                  }
             } else {
                  console.error(`InstanceMgr: Instance ${instanceId} not found for player ${socketId} during removal.`);
-                 this.playerInstanceMap.delete(socketId); // Clean up map anyway
+                 this.playerInstanceMap.delete(socketId);
             }
         } else {
              console.warn(`InstanceMgr: Cannot remove player ${socketId}, instance ID not found in map.`);
         }
-        return false; // Removal failed or player not found
+        return false;
     }
 }
 
-export { GameInstanceManager }; // Export the class
+export { GameInstanceManager };

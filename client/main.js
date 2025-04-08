@@ -165,16 +165,19 @@ function setupSocketListeners(intent) { // Socket is already defined via import
              gameState.myId = socket.id; // Update local ID
              console.log(`main.js: Socket connected with ID: ${gameState.myId}. Sending join request (Intent: ${intent})...`);
              showMessage(`Connected! Joining as ${intent}...`, 'info');
-             // Retrieve settings to send with join request
-             const playerName = localStorage.getItem('playerName') || `Tree_${socket.id.substring(0, 4)}`;
-             const leafColor = localStorage.getItem('leafColor') || Config.DEFAULT_LEAF_COLOR;
-             const trunkColor = localStorage.getItem('trunkColor') || Config.DEFAULT_TRUNK_COLOR;
 
+             // --->>> READ SETTINGS AND LOG <<<---
+             const playerName = localStorage.getItem('playerName') || `Tree_${socket.id.substring(0, 4)}`;
+             const leafColor = localStorage.getItem('leafColor') || Config.DEFAULT_LEAF_COLOR; // Use client Config for default
+             const trunkColor = localStorage.getItem('trunkColor') || Config.DEFAULT_TRUNK_COLOR; // Use client Config for default
+             console.log(`main.js: Read from localStorage - Name: ${playerName}, Leaf: ${leafColor}, Trunk: ${trunkColor}`); // <<< LOGGING ADDED
+
+             // --->>> SEND SETTINGS IN PAYLOAD <<<---
              socket.emit('playerJoinRequest', {
                  intent: intent,
-                 playerName: playerName,
-                 leafColor: leafColor,
-                 trunkColor: trunkColor
+                 playerName: playerName,    // Included
+                 leafColor: leafColor,      // Included
+                 trunkColor: trunkColor     // Included
               });
              sessionStorage.removeItem('gameModeIntent'); // Clean up intent storage
 
@@ -208,12 +211,7 @@ function setupSocketListeners(intent) { // Socket is already defined via import
         updateUI(); // Update UI to reflect disconnected state
     });
 
-    // connect_error listener is now in socket.js, no need to duplicate here unless
-    // you need specific UI updates *only* for the main game page on connection error.
-    // socket.on('connect_error', (error) => {
-    //     console.error('main.js: Connection Error:', error);
-    //     showMessage("Connection failed!", "error");
-    // });
+    // connect_error listener is now in socket.js
 
     // --- Game State Update Handler ---
     socket.on('gameStateUpdate', (serverState) => {
@@ -232,24 +230,23 @@ function setupSocketListeners(intent) { // Socket is already defined via import
         });
 
         // Update spectator status based *only* on server data for this client
-        // Important: Don't default to false here if data is missing, keep existing state
         gameState.isSpectator = myServerData?.isSpectator ?? gameState.isSpectator;
 
         // First time setup
         if (!gameState.initialStateReceived && gameState.myId && myServerData) {
              console.log("First gameStateUpdate processed.");
-             const myInitialState = myServerData; // Use direct data
+             const myInitialState = myServerData;
              if (myInitialState && controls) {
                  const initialHeight = myInitialState.trunkHeight || Config.INITIAL_TRUNK_HEIGHT;
                  const targetX = myInitialState.spawnPoint?.x ?? 0;
                  const targetZ = myInitialState.spawnPoint?.z ?? 0;
                  const baseLevel = Config.ISLAND_LEVEL !== undefined ? Config.ISLAND_LEVEL : 0.1;
-                 if(gameState.isSpectator) { // Camera for spectator
-                     controls.target.set(0, 5, 0); // Overview
-                     camera.position.set(15, 20, 15); // Slightly higher overview
-                 } else { // Camera for player
+                 if(gameState.isSpectator) {
+                     controls.target.set(0, 5, 0);
+                     camera.position.set(15, 20, 15);
+                 } else {
                       controls.target.set(targetX, initialHeight / 2 + baseLevel, targetZ);
-                      camera.position.set(targetX + 8, initialHeight + 5, targetZ + 8); // Position near own tree
+                      camera.position.set(targetX + 8, initialHeight + 5, targetZ + 8);
                  }
                  controls.update();
              }
@@ -279,7 +276,7 @@ function setupSocketListeners(intent) { // Socket is already defined via import
              if (!playerData.isSpectator) {
                  createOrUpdateTree(playerId, playerData);
              } else {
-                  removeTree(playerId); // Ensure spectators don't have trees
+                  removeTree(playerId);
              }
              if (gameState.gamePhase === 'lobby' || gameState.gamePhase === 'countdown') {
                  addOrUpdateSpawnMarker(playerId, playerData.spawnPoint, playerData.hasChosenSpawn);
@@ -315,9 +312,9 @@ function setupSocketListeners(intent) { // Socket is already defined via import
         if (myId) {
             addOrUpdateSpawnMarker(myId, confirmedPoint, true);
             const myState = getMyPlayerState();
-            if(myState) myState.hasChosenSpawn = true; // Update local cache immediately
-            showMessage("Spawn confirmed!", "success"); // Changed type
-            updateUI(); // Update UI to show "(Placed)" status
+            if(myState) myState.hasChosenSpawn = true;
+            showMessage("Spawn confirmed!", "success");
+            updateUI();
         }
     });
     socket.on('spawnPointInvalid', (data) => {
@@ -339,11 +336,10 @@ function setupSocketListeners(intent) { // Socket is already defined via import
         gameState.gameOverReason = data.reason || "Game Ended!";
         gameState.winnerId = data.winnerId;
         removeAllSpawnMarkers();
-        showGameOverUI(); // Update UI immediately
+        showGameOverUI();
     });
 
     // serverMessage listener is attached via attachServerMessageListener now
-    // socket.on('serverMessage', (data) => { ... });
 
 } // End of setupSocketListeners
 
@@ -376,7 +372,6 @@ function stopGameLoop() {
 
 
 // --- Conditional Initialization ---
-// Keep this check to ensure initializeApp only runs when main.js is the entry script
 const mainScriptUrl = new URL('/main.js', window.location.origin).href;
 if (import.meta.url === mainScriptUrl) {
     console.log("main.js detected as entry point script. Adding DOMContentLoaded listener.");
