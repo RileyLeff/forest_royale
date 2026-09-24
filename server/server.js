@@ -14,10 +14,10 @@ import { handleConnection } from './network/connection.js';
 // import { resetGame, cancelLobbyCountdown } from './game/gameLogic.js'; // Game logic now within GameInstance
 import { GameInstanceManager } from './game/GameInstanceManager.js'; // <<< Import the Manager
 import * as Config from './config.js';
+import { adminEnabled, isAdminPassword } from './adminAuth.js';
 
 // --- Configuration & Setup ---
 const PORT = process.env.PORT || 3000;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "defaultAdminPass123";
 // const TICK_RATE = 20; // Tick rate is now a Config property used by GameInstance
 // const TICK_INTERVAL_MS = 1000 / TICK_RATE; // Calculated within GameInstance
 
@@ -53,8 +53,7 @@ app.get('/game', (req, res) => { res.sendFile(path.join(clientPath, 'game.html')
 app.get('/settings', (req, res) => { res.sendFile(path.join(clientPath, 'settings.html')); });
 
 app.get('/admin', (req, res) => {
-    const providedPassword = req.query.pw;
-    if (providedPassword && providedPassword === ADMIN_PASSWORD) {
+    if (isAdminPassword(req.query.pw)) {
         console.log("Admin access granted via HTTP route.");
         res.sendFile(path.join(clientPath, 'admin.html'));
     } else {
@@ -82,7 +81,7 @@ io.on('connection', (socket) => {
 // --- Start HTTP Server ---
 httpServer.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
-    console.log(`Admin access requires query param: ?pw=${ADMIN_PASSWORD}`);
+    console.log(adminEnabled ? 'Admin tools enabled at /admin.' : 'Admin tools disabled: ADMIN_PASSWORD is not set.');
     // No global reset needed here, manager handles instance creation/state
     // resetGame(); // <<< REMOVED
 });

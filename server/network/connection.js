@@ -1,4 +1,5 @@
 import { adminSockets } from '../server.js';
+import { isAdminPassword } from '../adminAuth.js';
 import * as Config from '../config.js';
 // Game state, logic, and simulation are now handled by GameInstance and GameInstanceManager
 
@@ -22,8 +23,7 @@ export function handleConnection(socket, io, gameInstanceManager) {
         if (hasRouted) return; // Already handled by playerJoinRequest? Unlikely but safe.
         clearTimeout(connectionTimeout); // Clear the timeout
 
-        const serverAdminPassword = process.env.ADMIN_PASSWORD || "defaultAdminPass123";
-        if (data?.password && data.password === serverAdminPassword) {
+        if (isAdminPassword(data?.password)) {
             console.log(`Connection: Admin auth OK for ${socket.id}`);
             adminSockets.add(socket.id); // Mark as admin globally
             socket.emit('adminAuthResult', { success: true });
