@@ -33,19 +33,24 @@ export function showGameOverUI() {
     // Determine if this client is admin (by checking if admin controls exist on page)
     const isAdminView = !!document.getElementById('admin-controls'); // Check if admin controls are present
 
-    // --- Populate Modal Content ---
-    let reasonText = gameState.gameOverReason || "The game has ended!"; // Default reason
+    // --- Populate Modal Content (built as DOM nodes; names and reasons are never parsed as HTML) ---
+    const reasonText = String(gameState.gameOverReason || "The game has ended!"); // Default reason
+    const reasonNodes = [document.createTextNode(reasonText)];
     if (gameState.winnerId) {
         const winnerState = gameState.players[gameState.winnerId];
-        const winnerName = winnerState?.playerName || `Player ${gameState.winnerId.substring(0,4)}`;
+        const winnerName = winnerState?.playerName || `Player ${String(gameState.winnerId).substring(0,4)}`;
         // Check if WE are the winner (and not a spectator)
-        if (gameState.winnerId === gameState.myId && !gameState.isSpectator) { reasonText += `<br><strong>Congratulations, you had the most seeds!</strong>`; }
-        else { reasonText += `<br>Winner: ${winnerName} with ${winnerState?.seedCount ?? '?'} seeds.`; }
+        if (gameState.winnerId === gameState.myId && !gameState.isSpectator) {
+            const strong = document.createElement('strong');
+            strong.textContent = 'Congratulations, you had the most seeds!';
+            reasonNodes.push(document.createElement('br'), strong);
+        }
+        else { reasonNodes.push(document.createElement('br'), document.createTextNode(`Winner: ${winnerName} with ${winnerState?.seedCount ?? '?'} seeds.`)); }
     } else if (reasonText.indexOf("admin") === -1 && reasonText.indexOf("ended") > -1) { // Avoid adding "no winner" if admin ended it or just ended naturally
-         reasonText += "<br>No winner declared.";
+         reasonNodes.push(document.createElement('br'), document.createTextNode("No winner declared."));
     }
 
-    if(uiElements.gameOverReasonUI) uiElements.gameOverReasonUI.innerHTML = reasonText;
+    if(uiElements.gameOverReasonUI) uiElements.gameOverReasonUI.replaceChildren(...reasonNodes);
 
     // Show/Hide player-specific stats based on view type and spectator status
     const showPlayerStats = !isAdminView && !gameState.isSpectator; // Show stats only if regular player view AND not spectator

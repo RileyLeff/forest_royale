@@ -2,6 +2,7 @@
 import { gameState, getMyPlayerState } from '../gameState.js';
 import * as Config from '../config.js';
 import { uiElements } from './elements.js';
+import { renderListItems } from './renderList.js';
 
 /** Updates all relevant UI elements based on the current gameState. */
 export function updateUI() {
@@ -119,7 +120,7 @@ export function updateUI() {
          else uiElements.leaderboardTitleUI.textContent = `Leaderboard (${alivePlayerCount}/${activePlayerCount})`; // Show Alive/Total Active Players
      }
     if (uiElements.leaderboardListUI) {
-        let listHTML = '';
+        const rows = [];
         // --- Determine players to display based on phase ---
         let playersToDisplay = [];
         if (phase === 'lobby' || phase === 'countdown') {
@@ -131,7 +132,7 @@ export function updateUI() {
             playersToDisplay.sort((a, b) => (b?.seedCount ?? 0) - (a?.seedCount ?? 0)); // Sort remaining by seeds
         }
 
-        // --- Generate HTML list from the filtered playersToDisplay ---
+        // --- Build list rows from the filtered playersToDisplay (rendered as text) ---
         playersToDisplay.forEach(player => {
             const isMe = player.id === gameState.myId; // Check if it's the current player
             let status = '';
@@ -143,23 +144,22 @@ export function updateUI() {
             const name = player.playerName || `Player ${player.id.substring(0,4)}`;
             const seeds = (phase === 'playing' || phase === 'ended') ? `: ${player.seedCount} Seeds` : '';
             // Highlight 'Me' only if not spectator (spectator shouldn't see themselves on leaderboard)
-            const highlightClass = (isMe && !isSpectator) ? ' style="font-weight: bold;"' : '';
-            listHTML += `<li${highlightClass}>${name}${status}${seeds}</li>`;
+            rows.push({ text: `${name}${status}${seeds}`, bold: isMe && !isSpectator });
         });
 
 
         // --- Handle empty list conditions (considering only NON-spectators/admins now) ---
-        if (listHTML === '') {
+        if (rows.length === 0) {
              if (totalConnectionsCount > 0 && activePlayerCount === 0) {
-                 listHTML = '<li>Only spectators/admins connected...</li>';
+                 rows.push({ text: 'Only spectators/admins connected...' });
              } else if (totalConnectionsCount === 0) {
-                 listHTML = '<li>Waiting for players...</li>';
+                 rows.push({ text: 'Waiting for players...' });
              } else if (phase !== 'loading') {
                  // This case might occur if playersToDisplay was filtered to empty but connections existed
-                 listHTML = '<li>No active players found.</li>';
+                 rows.push({ text: 'No active players found.' });
              }
         }
 
-        uiElements.leaderboardListUI.innerHTML = listHTML;
+        renderListItems(uiElements.leaderboardListUI, rows);
      }
 }
