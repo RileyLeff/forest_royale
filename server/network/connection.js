@@ -1,7 +1,7 @@
 import { adminSockets } from '../server.js';
 import { isAdminPassword } from '../adminAuth.js';
 import * as Config from '../config.js';
-import { validateJoinRequest } from './validation.js';
+import { validateJoinRequest, isFiniteNumber } from './validation.js';
 // Game state, logic, and simulation are now handled by GameInstance and GameInstanceManager
 
 const MIN_SPAWN_DISTANCE_SQ = 4 * 4;
@@ -116,14 +116,14 @@ function setupInputAndActionListeners(socket, io, gameInstanceManager) {
     socket.on('updateStomata', (data) => {
         const instance = getInstanceForSocket(); if (!instance) return;
         const ps = instance.getPlayerState(socket.id);
-        if (ps && ps.isAlive && !ps.isSpectator && instance.state.gamePhase === 'playing' && typeof data?.value === 'number') {
+        if (ps && ps.isAlive && !ps.isSpectator && instance.state.gamePhase === 'playing' && isFiniteNumber(data?.value)) {
              ps.stomatalConductance = Math.max(0, Math.min(1, data.value));
         }
     });
     socket.on('updateAllocation', (data) => {
         const instance = getInstanceForSocket(); if (!instance) return;
         const ps = instance.getPlayerState(socket.id);
-        if (ps && ps.isAlive && !ps.isSpectator && instance.state.gamePhase === 'playing' && typeof data?.savings === 'number' && typeof data?.growthRatio === 'number') {
+        if (ps && ps.isAlive && !ps.isSpectator && instance.state.gamePhase === 'playing' && isFiniteNumber(data?.savings) && isFiniteNumber(data?.growthRatio)) {
             ps.lastSavingsPercent = Math.max(0, Math.min(100, data.savings));
             ps.lastGrowthRatioPercent = Math.max(0, Math.min(100, data.growthRatio));
         }
@@ -140,7 +140,7 @@ function setupInputAndActionListeners(socket, io, gameInstanceManager) {
          const instance = getInstanceForSocket(); if (!instance) return;
          const ps = instance.getPlayerState(socket.id);
          console.log(`Conn: Received 'selectSpawnPoint' from ${socket.id} for instance ${instance.state.instanceId}:`, coords);
-         if (!ps || ps.isSpectator || !coords || typeof coords.x !== 'number' || typeof coords.z !== 'number') { socket.emit('spawnPointInvalid', { reason: 'Invalid data/spectator.' }); return; }
+         if (!ps || ps.isSpectator || !coords || !isFiniteNumber(coords.x) || !isFiniteNumber(coords.z)) { socket.emit('spawnPointInvalid', { reason: 'Invalid data/spectator.' }); return; }
          if (instance.state.gamePhase !== 'lobby') { socket.emit('spawnPointInvalid', { reason: 'Can only select in lobby.' }); return; }
          if (ps.hasChosenSpawn) { socket.emit('spawnPointInvalid', { reason: 'Already chosen.' }); return; }
          const islandRadius = Config.ISLAND_RADIUS || 50; const distSqFromCenter = coords.x**2 + coords.z**2;
