@@ -16,6 +16,7 @@ class GameInstanceManager {
     createSinglePlayerInstance(socket) {
         console.log(`InstanceMgr: Creating new single-player instance for ${socket.id}`);
         const instance = new GameInstance('single', this.io);
+        this._attachErrorHandler(instance);
         this.instances.set(instance.state.instanceId, instance);
         console.log(`InstanceMgr: Added instance ${instance.state.instanceId} to manager. Total instances: ${this.instances.size}`);
         return instance;
@@ -27,6 +28,7 @@ class GameInstanceManager {
         } else {
             console.log("InstanceMgr: Creating new (and only) multiplayer instance.");
             const instance = new GameInstance('multi', this.io);
+            this._attachErrorHandler(instance);
             this.instances.set(instance.state.instanceId, instance);
             this.multiplayerInstanceId = instance.state.instanceId; // Store its ID
             console.log(`InstanceMgr: Added multiplayer instance ${instance.state.instanceId}. Total instances: ${this.instances.size}`);
@@ -35,6 +37,14 @@ class GameInstanceManager {
     }
 
     // --- Instance Management ---
+
+    // An instance whose timers throw is torn down on its own; other instances keep running.
+    _attachErrorHandler(instance) {
+        instance.onFatalError = (failedInstance) => {
+            console.error(`InstanceMgr: Instance ${failedInstance.state.instanceId} failed. Removing it.`);
+            this.removeInstance(failedInstance.state.instanceId);
+        };
+    }
 
     getInstance(instanceId) {
         return this.instances.get(instanceId) || null;

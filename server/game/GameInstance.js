@@ -66,6 +66,7 @@ function createInitialInstanceState() {
        isRaining: false, gamePhase: 'lobby', countdownTimer: null,
        allowPlayerCountdownStart: true, players: new Map(),
        _previousPeriodIndexForWeather: -2,
+       failed: false,
     };
 }
 
@@ -76,6 +77,7 @@ export class GameInstance {
        this.state.mode = mode;
        this.state.roomId = this.state.instanceId;
        this.io = io;
+       this.onFatalError = null; // Set by GameInstanceManager to remove this instance after an uncaught error
        console.log(`GameInstance created: ID=${this.state.instanceId}, Mode=${this.state.mode}, Room=${this.state.roomId}`);
    }
 
@@ -121,7 +123,7 @@ export class GameInstance {
        console.log(`GameInstance ${this.state.instanceId}: === Starting simulation loop ===`); // Keep: Important event
        this.state.lastTickTime = Date.now();
        const tickIntervalMs = 1000 / TICK_RATE;
-       this.state.simulationIntervalId = setInterval(() => this.runTick(), tickIntervalMs);
+       this.state.simulationIntervalId = setInterval(() => this._runGuarded('simulation tick', () => this.runTick()), tickIntervalMs);
        // Keep this log, useful for confirming start
        console.log(`GameInstance ${this.state.instanceId}: Simulation interval created with ID: ${this.state.simulationIntervalId}, Interval (ms): ${tickIntervalMs}`);
    }
@@ -138,6 +140,36 @@ export class GameInstance {
            this.state.simulationIntervalId = null;
        } else {
             console.log(`Instance ${this.state.instanceId}: stopSimulationLoop called but no active interval ID found.`); // Keep: Informative
+       }
+   }
+
+   // --- Exception Boundary ---
+   // Timer callbacks run outside any caller's try/catch, so an exception there
+   // would crash the whole process. Log it and end only this instance instead.
+   _runGuarded(label, fn) {
+       if (this.state.failed) return;
+       try {
+           fn();
+       } catch (err) {
+           this._failInstance(label, err);
+       }
+   }
+
+   _failInstance(label, err) {
+       if (this.state.failed) return;
+       this.state.failed = true;
+       console.error(`GameInstance ${this.state.instanceId}: Uncaught error in ${label}. Ending instance.`, err);
+       try { this.stopSimulationLoop(); } catch (stopErr) { console.error(`GameInstance ${this.state.instanceId}: Failed to stop simulation loop.`, stopErr); }
+       try { this.stopCountdown(); } catch (stopErr) { console.error(`GameInstance ${this.state.instanceId}: Failed to stop countdown.`, stopErr); }
+       this.state.gamePhase = 'ended';
+       try {
+           this.io.to(this.state.roomId).emit('serverMessage', { text: 'The game hit a server error and was ended.', type: 'error' });
+           this.io.to(this.state.roomId).emit('gameOver', { reason: 'Game ended due to a server error.', winnerId: null });
+       } catch (notifyErr) {
+           console.error(`GameInstance ${this.state.instanceId}: Failed to notify players of the error.`, notifyErr);
+       }
+       if (typeof this.onFatalError === 'function') {
+           try { this.onFatalError(this, err); } catch (cbErr) { console.error(`GameInstance ${this.state.instanceId}: onFatalError handler failed.`, cbErr); }
        }
    }
 
@@ -274,7 +306,7 @@ export class GameInstance {
     }
 
    // --- Countdown Logic (unchanged) ---
-   startCountdown() { if (this.state.gamePhase !== 'lobby' || this.state.countdownIntervalId) { return; } if (this.state.mode !== 'multi') { return; } const activePlayerCount = this.getNonSpectatorPlayers().length; if (activePlayerCount === 0) { console.log(`GameInstance ${this.state.instanceId}: Cannot start countdown, no active players.`); return; } console.log(`GameInstance ${this.state.instanceId}: Starting ${COUNTDOWN_DURATION}s countdown...`); this.setGamePhase('countdown'); this.state.countdownTimer = COUNTDOWN_DURATION; this.broadcastState(); this.state.countdownIntervalId = setInterval(() => { if (this.state.gamePhase !== 'countdown' || this.state.countdownTimer === null) { this.stopCountdown(); return; } const currentActivePlayers = this.getNonSpectatorPlayers().length; if (currentActivePlayers === 0) { console.log(`GameInstance ${this.state.instanceId}: Countdown cancelled, no active players remaining.`); this.stopCountdown(); this.setGamePhase('lobby'); this.broadcastState(); return; } const newTime = this.state.countdownTimer - 1; this.state.countdownTimer = newTime; this.broadcastState(); if (newTime <= 0) { this.stopCountdown(); this._prepareAndStartGame(); } }, 1000); }
+   startCountdown() { if (this.state.gamePhase !== 'lobby' || this.state.countdownIntervalId) { return; } if (this.state.mode !== 'multi') { return; } const activePlayerCount = this.getNonSpectatorPlayers().length; if (activePlayerCount === 0) { console.log(`GameInstance ${this.state.instanceId}: Cannot start countdown, no active players.`); return; } console.log(`GameInstance ${this.state.instanceId}: Starting ${COUNTDOWN_DURATION}s countdown...`); this.setGamePhase('countdown'); this.state.countdownTimer = COUNTDOWN_DURATION; this.broadcastState(); this.state.countdownIntervalId = setInterval(() => this._runGuarded('countdown tick', () => { if (this.state.gamePhase !== 'countdown' || this.state.countdownTimer === null) { this.stopCountdown(); return; } const currentActivePlayers = this.getNonSpectatorPlayers().length; if (currentActivePlayers === 0) { console.log(`GameInstance ${this.state.instanceId}: Countdown cancelled, no active players remaining.`); this.stopCountdown(); this.setGamePhase('lobby'); this.broadcastState(); return; } const newTime = this.state.countdownTimer - 1; this.state.countdownTimer = newTime; this.broadcastState(); if (newTime <= 0) { this.stopCountdown(); this._prepareAndStartGame(); } }), 1000); }
    stopCountdown() { if (this.state.countdownIntervalId) { clearInterval(this.state.countdownIntervalId); this.state.countdownIntervalId = null; } }
 
    // --- Start Game Helper (unchanged) ---
@@ -323,7 +355,7 @@ export class GameInstance {
 
    // --- Reset & End Game (unchanged) ---
    resetGame() { console.log(`GameInstance ${this.state.instanceId}: Resetting game...`); this.stopSimulationLoop(); this.stopCountdown(); Object.assign(this.state, { day: 1, timeInCycle: 0.0, currentPeriodIndex: -1, isNight: false, currentLightMultiplier: LIGHT_MULT_SUNNY, currentDroughtFactor: DROUGHT_MULT_BASE, isRaining: false, gamePhase: 'lobby', countdownTimer: null, allowPlayerCountdownStart: true }); this.state.players.forEach(p => { const initialLA = INITIAL_LEAF_AREA; const maxHydraulic = BASE_HYDRAULIC + HYDRAULIC_SCALE_PER_LA * initialLA; p.isAlive = false; p.hasChosenSpawn = false; p.spawnPoint = { x: 0, y: ISLAND_LEVEL, z: 0 }; p.carbonStorage = INITIAL_CARBON; p.hydraulicSafety = Math.min(INITIAL_HYDRAULICS, maxHydraulic); p.maxHydraulic = maxHydraulic; p.currentLA = initialLA; p.effectiveLA = initialLA; p.trunkHeight = INITIAL_TRUNK_HEIGHT; p.trunkWidth = Math.sqrt(initialLA * k_TA_LA_RATIO); p.trunkDepth = p.trunkWidth; p.seedCount = 0; p.damagedLAPercentage = 0; p.stomatalConductance = 0.5; p.lastSavingsPercent = 50; p.lastGrowthRatioPercent = 50; p.foliarUptakeAppliedThisNight = false; p.growthAppliedThisCycle = false; }); console.log(`GameInstance ${this.state.instanceId}: Reset complete. Phase: ${this.state.gamePhase}`); }
-   endGame(reason = "Game ended.") { console.log(`GameInstance ${this.state.instanceId}: endGame called. Reason: ${reason}`); this.stopSimulationLoop(); this.stopCountdown(); this.setGamePhase('ended'); let winnerId = null; let maxSeeds = -1; this.state.players.forEach(p => { if (!p.isSpectator && !p.playerName.startsWith('ADMIN_') && p.seedCount > maxSeeds) { maxSeeds = p.seedCount; winnerId = p.id; } }); console.log(`GameInstance ${this.state.instanceId}: Winner: ${winnerId || 'None'} with ${maxSeeds} seeds.`); this.io.to(this.state.roomId).emit('gameOver', { reason: reason, winnerId: winnerId }); this.broadcastState(); setTimeout(() => { this.resetGame(); this.broadcastState(); }, 2000); }
+   endGame(reason = "Game ended.") { console.log(`GameInstance ${this.state.instanceId}: endGame called. Reason: ${reason}`); this.stopSimulationLoop(); this.stopCountdown(); this.setGamePhase('ended'); let winnerId = null; let maxSeeds = -1; this.state.players.forEach(p => { if (!p.isSpectator && !p.playerName.startsWith('ADMIN_') && p.seedCount > maxSeeds) { maxSeeds = p.seedCount; winnerId = p.id; } }); console.log(`GameInstance ${this.state.instanceId}: Winner: ${winnerId || 'None'} with ${maxSeeds} seeds.`); this.io.to(this.state.roomId).emit('gameOver', { reason: reason, winnerId: winnerId }); this.broadcastState(); setTimeout(() => this._runGuarded('post-game reset', () => { this.resetGame(); this.broadcastState(); }), 2000); }
 
    // --- Broadcasting (unchanged) ---
    broadcastState() { const snapshot = this.getSnapshot(); this.io.to(this.state.roomId).emit('gameStateUpdate', snapshot); }
