@@ -5,6 +5,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Queue rather than cancel, so a deploy is never killed halfway.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -22,9 +27,13 @@ jobs:
       - name: Add host key
         run: echo "${{ secrets.SERVER_HOST }} ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGFc4r2KcXibDIPMeDM7HoWg4tzVvLzKEJwbmVTJAiXU" >> ~/.ssh/known_hosts
 
+      # The website's deploy builds this directory too. Both take the same
+      # host lock, so neither reads files the other is halfway through
+      # changing.
       - name: Sync files
         run: |
           rsync -avz --delete \
+            --rsync-path='flock -w 900 /var/lock/rileyleff-deploy.lock rsync' \
             --exclude 'node_modules' \
             --exclude '.git' \
             ./ root@${{ secrets.SERVER_HOST }}:/opt/forest-royale/
@@ -36,5 +45,5 @@ jobs:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
           printf '%s' "$DOPPLER_TOKEN" | ssh root@${{ secrets.SERVER_HOST }} 'cd /opt/rileyleff/deploy && \
-            DOPPLER_TOKEN="$(cat)" doppler run -- \
-            docker compose up -d --build forest-royale'
+            DOPPLER_TOKEN="$(cat)" flock -w 900 /var/lock/rileyleff-deploy.lock \
+            doppler run -- docker compose up -d --build --wait --wait-timeout 180 forest-royale'
