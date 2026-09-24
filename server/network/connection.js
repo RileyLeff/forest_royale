@@ -1,6 +1,7 @@
 import { adminSockets } from '../server.js';
 import { isAdminPassword } from '../adminAuth.js';
 import * as Config from '../config.js';
+import { validateJoinRequest } from './validation.js';
 // Game state, logic, and simulation are now handled by GameInstance and GameInstanceManager
 
 const MIN_SPAWN_DISTANCE_SQ = 4 * 4;
@@ -48,10 +49,13 @@ export function handleConnection(socket, io, gameInstanceManager) {
         if (hasRouted) return; // Already handled by adminAuthenticate?
         clearTimeout(connectionTimeout); // Clear the timeout
 
-        // Basic validation of join data
-        if (!data || !data.intent || !['single', 'multi', 'spectate'].includes(data.intent)) {
-             console.warn(`Connection: Received invalid playerJoinRequest from ${socket.id}. Data:`, data);
-             socket.disconnect(true);
+        // Validate every field by type before routing or creating an instance
+        const validation = validateJoinRequest(data, socket.id);
+        if (!validation.ok) {
+             console.warn(`Connection: Rejected playerJoinRequest from ${socket.id}: ${validation.reason}`);
+             socket.emit('serverMessage', { text: `Join rejected: ${validation.reason}`, type: 'error' });
+             // Keep socket open briefly to send the message, then disconnect
+             setTimeout(() => socket.disconnect(true), 500);
              return;
         }
         // Prevent regular players from claiming admin status via join request
@@ -60,28 +64,18 @@ export function handleConnection(socket, io, gameInstanceManager) {
             return; // Ignore request
         }
 
-        // <<<--- LOG RECEIVED DATA ---<<<
-        console.log(`Connection: Received playerJoinRequest from ${socket.id}. Intent: ${data.intent}. Payload:`, data);
-
-        // Extract settings (provide defaults if missing, though client should send them)
-        const settings = {
-            playerName: data.playerName || `Player_${socket.id.substring(0, 4)}`,
-            leafColor: data.leafColor || '#228B22', // Default Green from server/config.js could be used here too
-            trunkColor: data.trunkColor || '#8B4513' // Default Brown from server/config.js
-        };
-        // ---<<< LOG EXTRACTED SETTINGS --->>>
-        console.log(`Connection: Extracted settings for ${socket.id}:`, settings);
-
+        const { intent, settings } = validation;
+        console.log(`Connection: Received playerJoinRequest from ${socket.id}. Intent: ${intent}. Settings:`, settings);
 
         hasRouted = true; // Mark as routed
         // ---<<< PASS SETTINGS TO ROUTEPLAYER ---<<<
-        const targetInstance = gameInstanceManager.routePlayer(socket, data.intent, false, settings); // Pass settings object
+        const targetInstance = gameInstanceManager.routePlayer(socket, intent, false, settings); // Pass settings object
 
         if (targetInstance) {
             // Settings should be applied within routePlayer or immediately after
             setupInputAndActionListeners(socket, io, gameInstanceManager); // Setup listeners AFTER routing
         } else {
-            console.error(`Connection: Failed to route player ${socket.id} with intent ${data.intent}.`);
+            console.error(`Connection: Failed to route player ${socket.id} with intent ${intent}.`);
         }
     });
 
