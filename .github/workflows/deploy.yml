@@ -16,8 +16,11 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      # Pinned rather than scanned, so a spoofed host can't pick up the deploy.
+      # Same server as the website repo's deploy; if it is rebuilt, replace this
+      # with its new ed25519 key.
       - name: Add host key
-        run: ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+        run: echo "${{ secrets.SERVER_HOST }} ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGFc4r2KcXibDIPMeDM7HoWg4tzVvLzKEJwbmVTJAiXU" >> ~/.ssh/known_hosts
 
       - name: Sync files
         run: |
@@ -26,8 +29,12 @@ jobs:
             --exclude '.git' \
             ./ root@${{ secrets.SERVER_HOST }}:/opt/forest-royale/
 
+      # The token goes over stdin so it never appears in the ssh command line
+      # or the server's process list.
       - name: Rebuild container
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
-          ssh root@${{ secrets.SERVER_HOST }} 'cd /opt/rileyleff/deploy && \
-            DOPPLER_TOKEN=${{ secrets.DOPPLER_TOKEN }} doppler run -- \
+          printf '%s' "$DOPPLER_TOKEN" | ssh root@${{ secrets.SERVER_HOST }} 'cd /opt/rileyleff/deploy && \
+            DOPPLER_TOKEN="$(cat)" doppler run -- \
             docker compose up -d --build forest-royale'
